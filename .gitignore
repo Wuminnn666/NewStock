@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.rag_cache/
+.env
+*.zip
