@@ -315,11 +315,25 @@ def agent_tools(user=Depends(get_current_user)):
     return {"tools": TOOL_SCHEMAS}
 
 
+# 只读工具白名单：这两个没有副作用，随便直调都不影响数据。
+# 其余（material_validate / qualification_audit / compliance_check / create_goods_draft）
+# 一旦允许直调，就等于给了一条绕过 Agent 编排的旁路：
+# 实测过「先直调三个校验拿 token，再直调 create_goods_draft」，
+# 草稿会在没有任何人工确认的情况下被创建出来，
+# 而「建草稿前强制中断确认」是这一层的核心约束，绝不能有旁路。
+TOOLS_DIRECT_ALLOWED = {"search_review_rules", "get_category_requirements"}
+
+
 @router.post("/api/agent/tools/{name}")
 def agent_invoke(name: str, body: dict, user=Depends(require_role("submitter", "admin"))):
     fn = DISPATCH.get(name)
     if not fn:
         raise ApiError("40401", "工具不存在", 404)
+    if name not in TOOLS_DIRECT_ALLOWED:
+        # 统一引导到正式入口，不暴露「你差一步就能绕过」的细节
+        raise ApiError("40302",
+                       "该操作需通过智能体流程执行（含校验与人工确认），不支持直接调用",
+                       403)
     try:
         return {"ok": True, "result": fn(**body)}
     except TypeError as e:

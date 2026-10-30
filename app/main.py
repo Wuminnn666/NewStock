@@ -48,8 +48,34 @@ def _seed_knowledge():
         db.close()
 
 
+def _check_production_safety():
+    """上线前自检：不安全的默认配置直接拒绝启动，而不是打条日志了事。
+
+    为什么必须 fail-fast：SECRET_KEY 决定 JWT 签名。默认值写在代码里、
+    且已经进过 Git 仓库，等于任何人都能自己签一张 role=admin 的令牌。
+    这种问题不会在功能测试里暴露，只会在被别人登进来那天暴露。
+    日志警告没人看，启动失败才会被人处理。
+    """
+    if settings.ENV.lower() not in ("prod", "production"):
+        print(f"[安全检查] 当前 ENV={settings.ENV}，跳过生产校验（仅本地开发可接受）")
+        return
+
+    problems = []
+    if settings.SECRET_KEY == "dev-secret-please-change-in-prod":
+        problems.append("SECRET_KEY 仍是代码里的默认值")
+    if len(settings.SECRET_KEY) < 32:
+        problems.append(f"SECRET_KEY 长度仅 {len(settings.SECRET_KEY)}，要求 ≥32")
+    if problems:
+        raise RuntimeError(
+            "生产环境配置不安全，已拒绝启动：\n  - " + "\n  - ".join(problems)
+            + "\n请设置环境变量 SECRET_KEY（可用 `python -c \"import secrets;print(secrets.token_urlsafe(48))\"` 生成）"
+        )
+    print("[安全检查] 生产配置校验通过")
+
+
 @app.on_event("startup")
 def _startup():
+    _check_production_safety()
     init_db()
     seed_basic()
     _seed_knowledge()

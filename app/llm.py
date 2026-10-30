@@ -67,7 +67,16 @@ async def stream_llm(system: str, history, user_content: str):
         "messages": messages,
     }
     headers = {"Authorization": f"Bearer {settings.LLM_API_KEY}"}
-    async with httpx.AsyncClient(timeout=None) as client:
+    # 必须显式设超时。之前写 timeout=None，等于「等一辈子」：
+    # 上游网关不返回、也不关闭连接时，这个协程永远不会结束，
+    # 前端一直看到「正在匹配审核规则…」，服务端连接数只增不减。
+    timeout = httpx.Timeout(
+        connect=settings.LLM_CONNECT_TIMEOUT,
+        read=settings.LLM_READ_TIMEOUT,
+        write=settings.LLM_WRITE_TIMEOUT,
+        pool=settings.LLM_POOL_TIMEOUT,
+    )
+    async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():

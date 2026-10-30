@@ -17,6 +17,20 @@ class Settings:
     LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
     LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1200"))
+    # 超时三件套：缺一个就会挂死。
+    #  - connect：TCP/TLS 握手，正常 1s 内完成，给 5s 足够；
+    #  - read：流式场景下这是「两个 chunk 之间」的最大间隔，不是总时长，
+    #          所以 60s 已经非常宽松（模型正常 1~3s 吐第一个字）；
+    #  - write/pool：防止连接池被占满时无限等待。
+    # 没有 read 超时的后果：上游不吐字也不断开，请求会永久挂住，
+    # SSE 连接持续堆积，最终把 worker 拖死——这是最常见的线上雪崩形态。
+    LLM_CONNECT_TIMEOUT = float(os.getenv("LLM_CONNECT_TIMEOUT", "5"))
+    LLM_READ_TIMEOUT = float(os.getenv("LLM_READ_TIMEOUT", "60"))
+    LLM_WRITE_TIMEOUT = float(os.getenv("LLM_WRITE_TIMEOUT", "10"))
+    LLM_POOL_TIMEOUT = float(os.getenv("LLM_POOL_TIMEOUT", "5"))
+
+    # 运行环境：dev / prod。prod 下若干「不安全的默认值」会直接拒绝启动。
+    ENV = os.getenv("ENV", "dev")
 
     # Embedding（默认复用 LLM 的 key/base_url）
     EMB_API_KEY = os.getenv("EMB_API_KEY", os.getenv("LLM_API_KEY", ""))
