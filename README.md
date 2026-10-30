@@ -127,6 +127,39 @@ python eval_runner.py            # 真跑 Agent，逐条比对工具序列与关
 
 判定口径：期望工具序列必须是实际序列的子序列（只读工具之间不比顺序，有依赖的写操作严格比顺序）；期望不含建草稿则实际也不许出现；陷阱题答案必须包含"未找到"。
 
+## 安全与稳定性（护栏层）
+
+集中在 `app/guard.py`，避免「这个接口加了、那个忘了」。
+
+| 能力 | 说明 | 关键配置 |
+|---|---|---|
+| 接口限流 | 滑动窗口按账号计数，超限 `429 / 42901` | `RATE_CHAT_PER_MIN=10`、`RATE_AGENT_PER_MIN=10`、`RATE_LOGIN_PER_MIN=5` |
+| 日配额 | 按账号+日期累计 token（估算），超限 `429 / 42902` | `LLM_DAILY_TOKENS_PER_USER=200000`、`LLM_DAILY_TOKENS_GLOBAL=2000000` |
+| 并发闸门 | 同时在飞的模型请求上限，排队超时 `503 / 50301` | `LLM_MAX_CONCURRENCY=10`、`LLM_QUEUE_TIMEOUT=15` |
+| 注入防护 | 识别 10 类注入特征 → 留痕 + **剥离指令片段后再检索**；输出附「判断标准未改变」声明 | 代码内置，无需配置 |
+| 套取提示词 | 规则化拒答（不送模型），记 `security_events` | 代码内置 |
+| 降级开关 | `DEGRADED_MODE`：只回规则条文，不调模型；`AGENT_ENABLED`：摘掉智能体编排 | `DEGRADED_MODE=false`、`AGENT_ENABLED=true` |
+| 脱敏 | 手机号 / 身份证 / 邮箱 / 银行卡 掩码（展示层） | `guard.mask_text()` |
+| 安全留痕 | 表 `security_events`，`GET /api/admin/security-events` | — |
+
+自测（改完正则或阈值请跑一遍，防止把防线改坏）：
+
+```bash
+python guard_selftest.py     # 注入识别 10/10、正常问句 0 误伤、限流、配额、脱敏
+```
+
+运维脚本：
+
+```bash
+python scripts/backup.py                 # 在线快照备份（WAL 下安全），保留 7 份
+python scripts/retention.py              # 数据保留清理，默认 dry-run 只统计
+python scripts/retention.py --apply --archive backups/   # 先归档再删
+```
+
+巡检接口（管理员）：`GET /api/admin/usage`（当日用量、限流键数、开关状态）、`GET /api/admin/security-events`。
+
+上线前检查清单见 [`docs/go_live_checklist.md`](docs/go_live_checklist.md)（25 项，含负责人 / 验证方法 / 通过标准 / 发布 runbook）。
+
 ## 说明
 
 - 向量检索为进程内 FAISS，服务重启后从 SQLite 重建。

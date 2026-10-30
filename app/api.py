@@ -16,6 +16,11 @@ from .db import (
 )
 from .deps import get_db, get_current_user, require_role
 from .errors import ApiError
+from .guard import (
+    REFUSE_EXTRACT, REFUSE_INJECT_NOTE, charge_usage, check_quota, detect_injection,
+    enforce_rate, estimate_tokens, is_prompt_extraction, llm_slot,
+    rate_snapshot, record_security_event, strip_injection, usage_today,
+)
 from .knowledge import analyze_support, delete_document, index_state, ingest_document
 from .llm import build_user_content, get_active_prompt, stream_llm
 from .security import create_access_token, verify_password
@@ -51,8 +56,12 @@ class FlagIn(BaseModel):
 
 # ===================== 认证 =====================
 @router.post("/api/auth/login")
-def login(body: LoginIn, response: Response, db: Session = Depends(get_db)):
+def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     from .db import User
+    # 撞库防护：按「IP + 用户名」计数。只按 IP 会被代理池绕过，
+    # 只按用户名会让全公司共用一个出口 IP 时互相影响，两者组合最合适。
+    ip = (request.client.host if request.client else "unknown")
+    enforce_rate("login", f"{ip}:{body.username}", settings.RATE_LOGIN_PER_MIN)
     user = db.query(User).filter(User.username == body.username).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise ApiError("40102", "用户名或密码错误", 401)
@@ -92,6 +101,10 @@ async def chat(body: ChatIn, request: Request, db: Session = Depends(get_db),
     if len(question) > settings.MAX_QUESTION_LEN:
         raise ApiError("40002", f"问题内容超过 {settings.MAX_QUESTION_LEN} 字上限", 400)
 
+    # 限流必须在这里（读完参数、还没检索、没调模型）：
+    # 放在后面等于「只限制了响应速度，没限制成本」
+    enforce_rate("chat", str(user.id), settings.RATE_CHAT_PER_MIN)
+
     # 会话：不存在则新建
     session_id = body.session_id
     if session_id:
@@ -114,18 +127,86 @@ async def chat(body: ChatIn, request: Request, db: Session = Depends(get_db),
     db.add(ChatMessage(session_id=session_id, role="user", content=question, seq=next_seq))
     db.commit()
 
+    # ---- 安全前置判定（必须先于检索：注入前缀会把检索带偏）----
+    # 1) 套取系统提示词：规则化拒答，不交给模型自由发挥
+    extraction = is_prompt_extraction(question)
+    # 2) 注入特征：留痕 + 剥离指令片段后再检索，结论照常给
+    inject_hits = detect_injection(question)
+    if extraction:
+        record_security_event("prompt_extraction", user.id, session_id, question, "refused")
+    elif inject_hits:
+        record_security_event("injection_attempt", user.id, session_id,
+                              "命中:" + ",".join(inject_hits) + " | " + question, "logged")
+
+    # 检索用「剥掉指令片段后的真问题」；原文仍完整入库，审计不受影响
+    retrieval_q = strip_injection(question) if inject_hits else question
+
     # 检索 + 提示词
-    contexts = index_state.retrieve(question, top_k=settings.TOP_K)
+    contexts = index_state.retrieve(retrieval_q, top_k=settings.TOP_K)
     # 依据判定：top-k 永远有返回，若条文根本答不了这个问题，就必须直说「未找到」，
     # 而不是把三段不相关文字塞给模型（模型会顺着硬编，这是最典型的幻觉来源）。
-    support = analyze_support(question, [c["content"] for c in contexts])
+    support = analyze_support(retrieval_q, [c["content"] for c in contexts])
     system_prompt = get_active_prompt(db)
-    user_content = build_user_content(question, contexts)
+    user_content = build_user_content(retrieval_q, contexts)
+
+    # 3) 配额：超限直接 429，不进模型、不花钱
+    if not extraction and not settings.DEGRADED_MODE:
+        check_quota(user.id)
+
+    def _save_assistant(text: str, cites):
+        """助手消息落库（独立 session，避免与请求生命周期耦合）。"""
+        db2 = SessionLocal()
+        try:
+            db2.add(ChatMessage(session_id=session_id, role="assistant", content=text,
+                                citations=json.dumps(cites, ensure_ascii=False),
+                                seq=next_seq + 1))
+            db2.commit()
+        finally:
+            db2.close()
+
+    async def _stream_text(text: str):
+        """把一段固定文本按小块吐出去，保持打字机效果一致。"""
+        for i in range(0, len(text), 24):
+            yield sse("delta", {"text": text[i:i + 24]})
+            await asyncio.sleep(0.01)
 
     async def gen():
         yield sse("meta", {"session_id": session_id})
         yield sse("status", {"stage": "retrieving", "text": "正在匹配审核规则…"})
         full = ""
+
+        # ---- 分支 1：套取系统提示词 → 拒答（不调模型）----
+        if extraction:
+            async for chunk in _stream_text(REFUSE_EXTRACT):
+                yield chunk
+            _save_assistant(REFUSE_EXTRACT, [])
+            yield sse("done", {"finish_reason": "refused"})
+            return
+
+        # ---- 分支 2：降级模式 → 只回条文 + 引用，不调模型 ----
+        # 这是模型故障/账单异常时唯一能做到「不停服」的路径
+        if settings.DEGRADED_MODE:
+            if contexts:
+                lines = ["【系统维护中·当前为规则条文模式】以下是检索到的相关条文，"
+                         "未经过模型解读：", ""]
+                for i, c in enumerate(contexts[:3]):
+                    snippet = (c.get("content") or "").replace("\n", " ")[:120]
+                    lines.append(f"- 《{c['file']}》片段#{c['chunk_index'] + 1}：{snippet}")
+                lines += ["", "如需人工解读，请稍后重试或联系审核专员。"]
+            else:
+                lines = ["【系统维护中·当前为规则条文模式】未检索到相关条文，请稍后重试。"]
+            text = "\n".join(lines)
+            async for chunk in _stream_text(text):
+                yield chunk
+            cites = [{"file": c["file"], "chunk": c["chunk_index"] + 1,
+                      "snippet": c["content"][:80], "score": round(c["score"], 2)}
+                     for c in contexts]
+            if cites:
+                yield sse("citations", cites)
+            _save_assistant(text, cites)
+            yield sse("done", {"finish_reason": "degraded"})
+            return
+
         if not support.get("supported", True):
             # 命中不了就说命中不了，并说明判定依据（可解释，便于审计）
             text = ("规则中未找到相关条文。\n\n"
@@ -148,12 +229,28 @@ async def chat(body: ChatIn, request: Request, db: Session = Depends(get_db),
             yield sse("done", {"finish_reason": "no_grounding"})
             return
         try:
-            async for delta in stream_llm(system_prompt, history, user_content):
-                full += delta
-                yield sse("delta", {"text": delta})
+            # 并发闸门：限制同时在飞的模型请求，排队超时快速失败而不是无限等待
+            async with llm_slot():
+                async for delta in stream_llm(system_prompt, history, user_content):
+                    full += delta
+                    yield sse("delta", {"text": delta})
+        except ApiError as e:
+            # 排队超时等「预期内的失败」：给出明确中文，而不是笼统的生成失败
+            yield sse("error", {"code": e.code, "message": e.message})
+            return
         except Exception:
             yield sse("error", {"code": "50002", "message": "回答生成中断，请重试"})
             return
+        # 记账（估算值）：无论成功与否只要模型被调用过就应该计成本
+        try:
+            charge_usage(user.id, estimate_tokens(system_prompt, user_content, full))
+        except Exception as e:            # noqa: BLE001
+            print("[用量记账失败]", e)
+        # 命中注入特征：结论照给，但明确告诉用户「判断标准没被改变」
+        if inject_hits and full:
+            async for chunk in _stream_text(REFUSE_INJECT_NOTE):
+                yield chunk
+            full += REFUSE_INJECT_NOTE
         citations = [{
             "file": c["file"], "chunk": c["chunk_index"] + 1,
             "snippet": c["content"][:80], "score": round(c["score"], 2),
@@ -381,6 +478,17 @@ async def agent_run(body: AgentRunIn, db: Session = Depends(get_db),
     if len(question) > settings.MAX_QUESTION_LEN:
         raise ApiError("40002", f"问题内容超过 {settings.MAX_QUESTION_LEN} 字上限", 400)
 
+    # 降级开关：智能体编排涉及多轮决策，成本与风险都高于普通问答，
+    # 出问题时第一个被摘掉的就是它（而不是整站停服）
+    if not settings.AGENT_ENABLED:
+        raise ApiError("50302", "智能审核功能维护中，可先使用规则条文问答或稍后重试", 503)
+    enforce_rate("agent", str(user.id), settings.RATE_AGENT_PER_MIN)
+    # 注入特征留痕（不阻断：越权由服务端工具门禁兜底，这里只负责可追溯）
+    _hits = detect_injection(question)
+    if _hits:
+        record_security_event("injection_attempt", user.id, body.session_id or "",
+                              "agent | 命中:" + ",".join(_hits) + " | " + question, "logged")
+
     session_id = _ensure_session(db, user, body.session_id, question)
     harness = AgentHarness(session_id=session_id, user_id=str(user.id))
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
@@ -436,3 +544,44 @@ def agent_run_steps(run_id: str, db: Session = Depends(get_db),
         "summary": s.result_summary, "error_code": s.error_code,
         "created_at": s.created_at.strftime("%H:%M:%S"),
     } for s in steps]
+
+
+# ===================== 运营观测（用量 / 安全事件） =====================
+@router.get("/api/admin/usage")
+def admin_usage(user=Depends(require_role("admin"))):
+    """当日模型用量、限流键规模与关键阈值（上线后每天的巡检入口）。"""
+    return {
+        "usage": usage_today(),
+        "rate": rate_snapshot(),
+        "limits": {
+            "chat_per_min": settings.RATE_CHAT_PER_MIN,
+            "agent_per_min": settings.RATE_AGENT_PER_MIN,
+            "login_per_min": settings.RATE_LOGIN_PER_MIN,
+            "tokens_per_user": settings.LLM_DAILY_TOKENS_PER_USER,
+            "tokens_global": settings.LLM_DAILY_TOKENS_GLOBAL,
+            "llm_concurrency": settings.LLM_MAX_CONCURRENCY,
+        },
+        "switches": {"degraded": settings.DEGRADED_MODE, "agent_enabled": settings.AGENT_ENABLED},
+    }
+
+
+@router.get("/api/admin/security-events")
+def security_events(limit: int = 50, event_type: str = "",
+                    db: Session = Depends(get_db), user=Depends(require_role("admin"))):
+    """安全事件列表：注入尝试、套取提示词等。
+
+    detail 里可能含用户原话，返回前统一脱敏——安全页也不该成为
+    手机号/证件的二次泄露面。
+    """
+    from .db import SecurityEvent
+    from .guard import mask_text
+    q = db.query(SecurityEvent)
+    if event_type:
+        q = q.filter(SecurityEvent.event_type == event_type)
+    rows = q.order_by(SecurityEvent.id.desc()).limit(min(limit, 200)).all()
+    return [{
+        "id": r.id, "type": r.event_type, "user_id": r.user_id,
+        "session_id": r.session_id, "detail": mask_text(r.detail or ""),
+        "action": r.action_taken,
+        "at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+    } for r in rows]

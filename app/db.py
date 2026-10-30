@@ -18,8 +18,28 @@ def now():
 
 engine = create_engine(
     settings.DB_URL,
-    connect_args={"check_same_thread": False},  # SQLite 多线程访问
+    # check_same_thread=False：SQLite 默认禁止跨线程复用连接，而 FastAPI 的
+    # 同步依赖会在线程池里执行，必须放开。
+    # timeout=30：拿不到写锁时最多等 30 秒再报错，而不是立刻抛
+    # "database is locked"——SSE 长连接 + 后台任务并发写的时候这个参数很关键。
+    connect_args={"check_same_thread": False, "timeout": 30},
 )
+
+
+# 开启 WAL：读不阻塞写、写不阻塞读，是 SQLite 支撑「边聊边审计」的前提。
+# 只在 SQLite 下执行，换 PostgreSQL 时自动跳过。
+if settings.DB_URL.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragma(dbapi_conn, _rec):        # noqa: ANN001
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")     # 并发读写下显著减少锁冲突
+        cur.execute("PRAGMA synchronous=NORMAL")   # WAL 下够安全，且快很多
+        cur.execute("PRAGMA busy_timeout=30000")   # 30s，与上面的 timeout 对齐
+        cur.close()
+
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
@@ -146,6 +166,37 @@ class AgentConfirmation(Base):
     decided_by = Column(String(64))
     decided_at = Column(DateTime)
     created_at = Column(DateTime, default=now)
+
+
+class LlmUsage(Base):
+    """模型调用用量：按「账号 + 日期」累计，用于日配额控制。
+
+    为什么落库而不是放内存：配额的意义就是「跨进程、跨重启都算数」。
+    放内存的话，重启一次配额就清零，等于没有。
+    """
+    __tablename__ = "llm_usage"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(64), index=True)
+    day = Column(String(10), index=True)       # YYYY-MM-DD（本地日）
+    calls = Column(Integer, default=0)
+    tokens = Column(Integer, default=0)        # 估算值，用于防失控
+    updated_at = Column(DateTime, default=now, onupdate=now)
+
+
+class SecurityEvent(Base):
+    """安全事件留痕：提示词注入、套取系统提示、越权尝试等。
+
+    单独一张表而不是塞进业务日志，是因为它的留存期、访问权限、
+    告警规则都跟业务日志不一样（安全事件要留更久、只有安全角色能看）。
+    """
+    __tablename__ = "security_events"
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(32), index=True)   # injection_attempt/prompt_extraction/...
+    user_id = Column(String(64), index=True)
+    session_id = Column(String(64))
+    detail = Column(String(500))                  # 命中片段（截断，避免把全文塞进安全表）
+    action_taken = Column(String(64))             # refused/logged/degraded
+    created_at = Column(DateTime, default=now, index=True)
 
 
 def init_db():

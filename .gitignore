@@ -5,3 +5,6 @@ __pycache__/
 *.zip
 data.db
 *.db
+*.db-wal
+*.db-shm
+backups/

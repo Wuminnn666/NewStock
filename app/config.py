@@ -32,6 +32,34 @@ class Settings:
     # 运行环境：dev / prod。prod 下若干「不安全的默认值」会直接拒绝启动。
     ENV = os.getenv("ENV", "dev")
 
+    # ---------------- 限流与配额（对应上线清单 B1/B2/B3） ----------------
+    # 阈值取值思路：正常提交方一天提问几次到几十次，10 次/分钟已经非常宽松，
+    # 但足以挡住脚本刷接口。登录接口更严，因为它是撞库的首选目标。
+    RATE_CHAT_PER_MIN = int(os.getenv("RATE_CHAT_PER_MIN", "10"))
+    RATE_AGENT_PER_MIN = int(os.getenv("RATE_AGENT_PER_MIN", "10"))
+    RATE_LOGIN_PER_MIN = int(os.getenv("RATE_LOGIN_PER_MIN", "5"))
+
+    # token 日配额（按账号 / 全局）。注意：流式接口拿不到精确 usage，
+    # 这里按字符数估算（见 guard.estimate_tokens），用于「防失控」而非「精确计费」。
+    LLM_DAILY_TOKENS_PER_USER = int(os.getenv("LLM_DAILY_TOKENS_PER_USER", "200000"))
+    LLM_DAILY_TOKENS_GLOBAL = int(os.getenv("LLM_DAILY_TOKENS_GLOBAL", "2000000"))
+
+    # 同时在飞的模型请求上限 + 排队上限；排队超时宁可快速失败，也不让用户干等
+    LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "10"))
+    LLM_QUEUE_TIMEOUT = float(os.getenv("LLM_QUEUE_TIMEOUT", "15"))
+
+    # ---------------- 降级开关（对应上线清单 E5） ----------------
+    # DEGRADED_MODE=true：不调模型，只回检索到的规则条文 + 引用。
+    # 这是模型故障/账单异常时唯一能「不停服」的手段，所以必须能独立于代码生效。
+    DEGRADED_MODE = os.getenv("DEGRADED_MODE", "false").lower() in ("1", "true", "yes")
+    # AGENT_ENABLED=false：整个智能体编排下线，仅保留规则问答
+    AGENT_ENABLED = os.getenv("AGENT_ENABLED", "true").lower() in ("1", "true", "yes")
+
+    # ---------------- 数据保留（对应上线清单 A3） ----------------
+    RETENTION_CHAT_DAYS = int(os.getenv("RETENTION_CHAT_DAYS", "180"))
+    RETENTION_AGENT_DAYS = int(os.getenv("RETENTION_AGENT_DAYS", "90"))
+    RETENTION_SECURITY_DAYS = int(os.getenv("RETENTION_SECURITY_DAYS", "365"))
+
     # Embedding（默认复用 LLM 的 key/base_url）
     EMB_API_KEY = os.getenv("EMB_API_KEY", os.getenv("LLM_API_KEY", ""))
     EMB_BASE_URL = os.getenv("EMB_BASE_URL", os.getenv("LLM_BASE_URL", "https://api.openai.com/v1"))
