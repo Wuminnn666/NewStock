@@ -48,6 +48,12 @@ class Settings:
     LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "10"))
     LLM_QUEUE_TIMEOUT = float(os.getenv("LLM_QUEUE_TIMEOUT", "15"))
 
+    # 单实例允许同时挂着的 SSE 流式连接数（对应上线清单 B4）。
+    # 为什么必须显式设上限：一条 SSE 连接占一个协程 + 一个 socket fd，
+    # 连接只增不减会把 FD 吃光，届时整个进程连健康检查都拒连——
+    # 表现为「服务假死」，比直接 429 更糟。宁可让第 201 个用户看到「稍后再试」。
+    SSE_MAX_CONNECTIONS = int(os.getenv("SSE_MAX_CONNECTIONS", "200"))
+
     # ---------------- 降级开关（对应上线清单 E5） ----------------
     # DEGRADED_MODE=true：不调模型，只回检索到的规则条文 + 引用。
     # 这是模型故障/账单异常时唯一能「不停服」的手段，所以必须能独立于代码生效。

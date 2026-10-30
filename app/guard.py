@@ -167,6 +167,78 @@ async def llm_slot():
 
 
 # ---------------------------------------------------------------------------
+# 三之二、SSE 长连接闸门（对应上线清单 B4）
+# ---------------------------------------------------------------------------
+# 为什么要单独管连接数：模型并发信号量限制的是「同时在向模型发请求」，
+# 但一条 SSE 连接在等待、思考、客户端卡住不读时都在占资源（协程 + FD + 内存 buffer）。
+# 只限模型并发而不管连接数，攻击者用 1000 条「发了 question 就不读」的连接
+# 就能把 FD 耗光，进程表现为假死（连 /health 都连不上），这比 429 严重得多。
+class _ConnCounter:
+    """当前挂着的 SSE 连接数。只需要「计数 + 峰值」，不需要排队。"""
+
+    def __init__(self):
+        self._n = 0
+        self._peak = 0
+        self._rejected = 0
+        self._lock = threading.Lock()
+
+    def acquire(self, limit: int) -> bool:
+        with self._lock:
+            if self._n >= limit:
+                self._rejected += 1
+                return False
+            self._n += 1
+            self._peak = max(self._peak, self._n)
+            return True
+
+    def release(self):
+        with self._lock:
+            if self._n > 0:
+                self._n -= 1
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"active": self._n, "peak": self._peak, "rejected": self._rejected}
+
+
+_conns = _ConnCounter()
+
+
+class SseTicket:
+    """连接名额的「租约」对象。
+
+    为什么不是简单的 acquire/release：流式接口有三条退出路径
+    （正常读完、抛异常、客户端断开触发 GeneratorExit），
+    任何一条漏掉释放，名额就永久少一个，跑几天后服务自然全满。
+    用幂等 release 保证「无论退几次，只还一次」。
+    """
+
+    __slots__ = ("_closed",)
+
+    def __init__(self):
+        self._closed = False
+
+    def release(self):
+        if not self._closed:
+            self._closed = True
+            _conns.release()
+
+
+def acquire_sse():
+    """取一条 SSE 连接名额；满了抛 429（要求客户端稍后重试，而不是排队）。"""
+    if not _conns.acquire(settings.SSE_MAX_CONNECTIONS):
+        raise ApiError("42904", "当前在线咨询人数已达上限，请稍后重试", 429)
+    return SseTicket()
+
+
+def conn_snapshot() -> dict:
+    """给运维/健康检查看当前连接水位，用于决定扩容或限流。"""
+    snap = _conns.snapshot()
+    snap["limit"] = settings.SSE_MAX_CONNECTIONS
+    return snap
+
+
+# ---------------------------------------------------------------------------
 # 四、提示词注入检测（对应上线清单 D1/D2）
 # ---------------------------------------------------------------------------
 # 说明：这里做的是「识别 + 降权 + 留痕」，不是「看到关键词就拒绝」。

@@ -17,7 +17,8 @@ from .db import (
 from .deps import get_db, get_current_user, require_role
 from .errors import ApiError
 from .guard import (
-    REFUSE_EXTRACT, REFUSE_INJECT_NOTE, charge_usage, check_quota, detect_injection,
+    REFUSE_EXTRACT, REFUSE_INJECT_NOTE, acquire_sse, charge_usage, check_quota,
+    conn_snapshot, detect_injection,
     enforce_rate, estimate_tokens, is_prompt_extraction, llm_slot,
     rate_snapshot, record_security_event, strip_injection, usage_today,
 )
@@ -35,10 +36,49 @@ def sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def sse_response(agen):
+    """所有流式接口的统一出口。
+
+    两件事必须在这里做，散到各个路由就一定会漏：
+    1) 进流之前先占一个连接名额（对应上线清单 B4），占不到就直接抛 429，
+       让用户看到「稍后再试」，而不是把连接挂着等 FD 耗尽；
+    2) 无论正常结束、异常、还是客户端断开（GeneratorExit），都保证归还名额，
+       否则跑几天后名额泄漏干净，服务表现为「谁都进不来」。
+    """
+    ticket = acquire_sse()
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+               "Connection": "keep-alive"}
+
+    async def guarded():
+        try:
+            async for chunk in agen:
+                yield chunk
+        finally:
+            ticket.release()
+
+    return StreamingResponse(guarded(), media_type="text/event-stream", headers=headers)
+
+
+@router.get("/api/health")
+def health():
+    """运维探针：判断「服务是否还能接客」，而不是只判断「进程还在」。
+
+    上线后扩容/限流的依据在这里：SSE 活跃连接数接近上限就该加实例，
+    而不是等用户开始报 429。此接口不鉴权、不查敏感数据，可被负载均衡器高频调用。
+    """
+    return {
+        "status": "degraded" if settings.DEGRADED_MODE else "ok",
+        "degraded": settings.DEGRADED_MODE,
+        "agent_enabled": settings.AGENT_ENABLED,
+        "sse": conn_snapshot(),
+        "rate_keys": rate_snapshot()["keys"],
+        "llm_today": usage_today(),
+    }
+
+
 class LoginIn(BaseModel):
     username: str
     password: str
-
 
 class ChatIn(BaseModel):
     session_id: str | None = None
@@ -268,9 +308,7 @@ async def chat(body: ChatIn, request: Request, db: Session = Depends(get_db),
             db2.close()
         yield sse("done", {"finish_reason": "stop"})
 
-    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
-               "Connection": "keep-alive"}
-    return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
+    return sse_response(gen())
 
 
 # ===================== 规则知识库 =====================
@@ -491,9 +529,7 @@ async def agent_run(body: AgentRunIn, db: Session = Depends(get_db),
 
     session_id = _ensure_session(db, user, body.session_id, question)
     harness = AgentHarness(session_id=session_id, user_id=str(user.id))
-    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
-    return StreamingResponse(harness.astream(question), media_type="text/event-stream",
-                             headers=headers)
+    return sse_response(harness.astream(question))
 
 
 @router.post("/api/agent/confirm")
@@ -512,10 +548,8 @@ async def agent_confirm(body: AgentConfirmIn, db: Session = Depends(get_db),
 
     harness = AgentHarness(session_id=row.session_id, user_id=str(user.id))
     harness.load_pending(body.confirm_id)   # 提前校验，错误才能以 JSON 返回而不是断流
-    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
-    return StreamingResponse(
-        harness.astream_confirm(body.confirm_id, body.approved, user.username),
-        media_type="text/event-stream", headers=headers)
+    return sse_response(
+        harness.astream_confirm(body.confirm_id, body.approved, user.username))
 
 
 @router.get("/api/agent/runs")

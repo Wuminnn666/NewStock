@@ -154,11 +154,19 @@ python guard_selftest.py     # 注入识别 10/10、正常问句 0 误伤、限�
 python scripts/backup.py                 # 在线快照备份（WAL 下安全），保留 7 份
 python scripts/retention.py              # 数据保留清理，默认 dry-run 只统计
 python scripts/retention.py --apply --archive backups/   # 先归档再删
+python scripts/install_schedule.py       # 打印备份/清理定时任务命令（加 --apply 才注册）
+python scripts/sse_selftest.py --base http://127.0.0.1:8000   # SSE 连接闸门自测（超额 42904、无泄漏）
+python scripts/load_test.py --concurrency 50 --total 200       # 压测基线（先调高限流/配额）
+python scripts/build_checklist_html.py   # 由 md 生成评审版 HTML 清单
 ```
+
+健康探针：`GET /api/health`（不鉴权）返回 `status / degraded / agent_enabled / sse{active,peak,rejected,limit} / llm_today`，
+扩容与限流判断看 `sse.active` 与 `limit` 的比例，而不是等用户报障。
 
 巡检接口（管理员）：`GET /api/admin/usage`（当日用量、限流键数、开关状态）、`GET /api/admin/security-events`。
 
-上线前检查清单见 [`docs/go_live_checklist.md`](docs/go_live_checklist.md)（25 项，含负责人 / 验证方法 / 通过标准 / 发布 runbook）。
+上线前检查清单见 [`docs/go_live_checklist.md`](docs/go_live_checklist.md)（25 项，含负责人 / 验证方法 / 通过标准 / 发布 runbook），
+评审打印版：[`docs/go_live_checklist.html`](docs/go_live_checklist.html)。
 
 ## 说明
 
