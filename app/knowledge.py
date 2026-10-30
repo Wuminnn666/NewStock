@@ -14,9 +14,128 @@ from .config import settings
 
 
 # ---------------- 文本处理 ----------------
+# 中文分词：优先 jieba（词级），没装则退化为二元组。
+# 为什么必须上词级？
+#    单字/二元组切分会让「商品」「上架」这类高频字在任意文档里都命中，
+#    BM25 失去区分度——问「图书 ISBN」和问「食品资质」得分几乎一样，
+#    检索层等于没在工作。词级切分才能让「图书」「直播」「家政」这些
+#    语料中根本不存在的词自然拿不到 IDF，从而具备「查不到就说查不到」的能力。
+try:                                  # jieba 是纯 Python 包，缺失时不影响启动
+    import jieba
+
+    jieba.setLogLevel(60)             # 关掉 "Building prefix dict" 之类的日志噪音
+    _HAS_JIEBA = True
+except Exception:                     # pragma: no cover
+    _HAS_JIEBA = False
+
+# 检索/覆盖判定时忽略的功能词（问句骨架，不承载「问的是什么」）
+STOPWORDS = {
+    "商品", "上架", "审核", "需要", "提交", "提供", "请问", "什么", "哪些", "哪个",
+    "可以", "怎么", "如何", "是否", "有没有", "以及", "或者", "这个", "那个", "这款",
+    "要求", "标准", "问题", "一下", "帮我", "麻烦", "具体", "相关", "情况", "时候",
+    "多久", "多少", "属于", "范围", "内容", "变化", "我的", "我们", "你们", "一个",
+}
+
+
 def tokenize(text: str):
-    """中英混合极简分词：中文单字 + 英文/数字词。"""
-    return re.findall(r"[\u4e00-\u9fff]|[a-zA-Z0-9]+", text.lower())
+    """中英混合分词：中文走 jieba 词级（兜底二元组）+ 英文/数字词。"""
+    text = (text or "").lower()
+    out = []
+    for run in re.findall(r"[\u4e00-\u9fff]+|[a-zA-Z0-9]+", text):
+        if re.match(r"[a-zA-Z0-9]", run):
+            out.append(run)
+        elif _HAS_JIEBA:
+            out.extend(w for w in jieba.cut_for_search(run) if w.strip())
+        elif len(run) == 1:
+            out.append(run)
+        else:
+            out.extend(run[i:i + 2] for i in range(len(run) - 1))
+    return out
+
+
+def content_words(text: str):
+    """抽取「内容词」——去掉问句功能词后的实义词，用于判断检索是否有依据。"""
+    out = []
+    for w in tokenize(text):
+        if len(w) < 2 or w in STOPWORDS or w.isdigit():
+            continue
+        if w not in out:
+            out.append(w)
+    return out
+
+
+# 不能当「主语」的词：否定词、情态词、动作词、疑问代词。
+# 「我没办食品经营许可证，能不能先上架后补」如果把"没办"当主语，
+# 就会判成"规则里没有"——而制度其实明确说了"过期/缺证视为不合规"。
+NON_SUBJECT = {
+    "没办", "没有", "未办", "不能", "可以", "能否", "是否", "需要", "要交", "后补",
+    "先上", "办理", "申请", "提供", "提交", "准备", "了解", "知道", "哪里", "哪些",
+    "什么", "为什么", "怎么", "如何", "规定", "我想", "一款", "一个", "这个", "那个",
+}
+
+# 一份制度里「给出资质清单」的段落通常长这样：多个证照名并列
+_MATERIAL_HINT = ("许可证", "证书", "报告", "凭证", "授权书", "备案")
+
+
+def analyze_support(query: str, texts):
+    """判断「检索到的条文到底能不能回答这个问题」（检索置信度）。
+
+    为什么需要它？
+        向量检索永远会返回 top-k，哪怕库里一个字都不相关——HTTP 200 + 三条
+        片段，看起来像有依据，实则全是噪声。缺了这个判据，模型只会硬编答案，
+        这正是「陷阱题答不出“规则中未找到”」的根因。
+
+    判据（两条，都很朴素但可解释）：
+        1) 问题的核心实义词要有一定比例出现在条文里（覆盖率）；
+        2) 如果问的是「要交什么材料」，那么类目主体词必须出现在
+           **给出清单的那一段**里——否则就是"提到了这个词，但没回答这个问题"。
+           例：制度在"禁售规则"里提过"无证医疗器械"，但资质清单段落只列了
+           食品/化妆品/3C/服饰，所以问"二类医疗器械备案要交什么"必须答未找到。
+
+    返回：{"supported": bool, "coverage": float, "subject": str,
+           "missing": [...], "reason": str}
+    """
+    words = content_words(query)
+    if not texts:
+        return {"supported": False, "coverage": 0.0, "subject": "",
+                "missing": words, "reason": "知识库中没有可检索的条文"}
+    if not words:
+        return {"supported": True, "coverage": 1.0, "subject": "",
+                "missing": [], "reason": ""}
+
+    joined = "\n".join(texts).lower()      # 统一小写，"3C" 与 "3c" 才算同一个词
+    # jieba 会把「食品类」切成「食品类/食品/类」，用子串兜底避免漏命中
+    hit = [w for w in words if w in joined]
+    coverage = len(hit) / len(words)
+
+    # 主语 = 第一个「实义名词」，跳过否定/情态/动作词（见 NON_SUBJECT 说明）
+    subject = next((w for w in words if w not in NON_SUBJECT), words[0])
+    subject_found = subject in joined
+
+    # 「要交什么材料」类问题：主语必须出现在「给出清单」的那一段。
+    # 触发条件必须收紧——「证件类图片支持什么格式」虽然含"证件"，但它问的是格式，
+    # 不是问要交哪些证件，不能误判成材料类问题。
+    ask_material = any(k in query for k in (
+        "需要提交", "要提交", "提交哪些", "需要提供", "要提供", "需要交", "要交",
+        "哪些材料", "什么材料", "哪些资质", "什么资质", "准备哪些", "需要哪些",
+    ))
+    if ask_material:
+        listing = [t for t in texts if sum(t.count(h) for h in _MATERIAL_HINT) >= 2]
+        if listing and not any(subject in t.lower() for t in listing):
+            return {"supported": False, "coverage": coverage, "subject": subject,
+                    "missing": [w for w in words if w not in hit],
+                    "reason": f"条文未在资质清单中列出「{subject}」"}
+
+    if not subject_found:
+        return {"supported": False, "coverage": coverage, "subject": subject,
+                "missing": [w for w in words if w not in hit],
+                "reason": f"规则中未出现「{subject}」相关条文"}
+    if coverage < 0.34:
+        return {"supported": False, "coverage": coverage, "subject": subject,
+                "missing": [w for w in words if w not in hit],
+                "reason": "问题主体与检索条文匹配度过低"}
+    return {"supported": True, "coverage": coverage, "subject": subject,
+            "missing": [], "reason": ""}
 
 
 def chunk_text(text: str, size: int = 500):

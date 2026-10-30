@@ -48,6 +48,18 @@ def is_subsequence(expected, actual):
     return all(any(x == e for x in it) for e in expected)
 
 
+def tools_match(expected, actual):
+    """工具序列判定。
+
+    只读工具（检索规则 / 查类目）彼此没有依赖，谁先谁后都合理，
+    因此只要期望全是只读工具，就按「集合包含」判定；
+    一旦涉及校验、草稿这类有前后依赖的写操作，必须严格比顺序。
+    """
+    if expected and set(expected) <= READ_ONLY:
+        return set(expected) <= set(actual)
+    return is_subsequence(expected, actual)
+
+
 def static_check(cases):
     """静态校验：字段、分类配比、工具名合法性。"""
     from app.tools import DISPATCH
@@ -96,14 +108,14 @@ async def run_one(idx, case):
 
     expected = case["expected_tools"]
     # 判定 1：期望的工具必须按顺序出现过
-    if not is_subsequence(expected, tools):
+    if not tools_match(expected, tools):
         return False, tools, final_text, f"工具序列不符（期望 {expected}）"
     # 判定 2：期望序列里没有 create_goods_draft，实际也不许出现
     if "create_goods_draft" not in expected and "create_goods_draft" in tools:
         return False, tools, final_text, "越权创建了草稿"
     # 判定 2b：纯咨询类（期望工具全为只读）不许顺手跑校验/写操作——
     #          用户只是问规则，Agent 不该替他推进流程（过度执行同样是缺陷）。
-    if set(expected) <= READ_ONLY and not set(tools) <= READ_ONLY:
+    if expected and set(expected) <= READ_ONLY and not set(tools) <= READ_ONLY:
         extra = [t for t in tools if t not in READ_ONLY]
         return False, tools, final_text, f"纯咨询却执行了写/校验工具 {extra}"
     # 判定 3：陷阱题必须明确说“未找到”

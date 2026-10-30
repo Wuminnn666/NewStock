@@ -112,8 +112,25 @@ python agent_demo.py "帮我提交一款食品类商品的上架申请"
 
 `material_validate → qualification_audit → compliance_check → create_goods_draft`，任一前置未通过时后续工具直接抛 `E-STATE-001/002/003`，模型无法跳过校验直接建草稿。
 
+## 评测与回归（QA）
+
+30 条评测用例，覆盖规则问答 / 工具调用顺序 / 违规意图 / 多轮上下文：
+
+```bash
+python eval_runner.py --static   # 静态校验：字段、分类配比、工具名合法性（可进 CI）
+python eval_runner.py            # 真跑 Agent，逐条比对工具序列与关键回答
+```
+
+- 用例集：[`docs/eval_cases.json`](docs/eval_cases.json)
+- 评测报告（含修复前后对比与留出检验）：[`docs/eval_report.md`](docs/eval_report.md)
+- 其中 3 条是**规则中不存在答案的陷阱题**（图书 ISBN / 二类医疗器械备案 / 直播口播话术），期望回答"规则中未找到"
+
+判定口径：期望工具序列必须是实际序列的子序列（只读工具之间不比顺序，有依赖的写操作严格比顺序）；期望不含建草稿则实际也不许出现；陷阱题答案必须包含"未找到"。
+
 ## 说明
 
 - 向量检索为进程内 FAISS，服务重启后从 SQLite 重建。
+- 中文分词使用 `jieba`（未安装时退化为二元组）；单字切分会让 BM25 失去区分度，不建议回退。
+- 检索结果附带 `support` 依据判定：条文答不了的问题一律回"规则中未找到"，不硬编。
 - PDF 使用 `pypdf` 提取文本，扫描件/图片 PDF 不做 OCR。
 - 删除规则文档会删除其切片并全量重建索引。

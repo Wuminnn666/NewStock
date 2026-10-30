@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """全部 JSON 接口：认证、聊天(SSE)、规则库、提示词、审计、Agent 工具。"""
+import asyncio
 import json
 import uuid
 from datetime import datetime
@@ -15,7 +16,7 @@ from .db import (
 )
 from .deps import get_db, get_current_user, require_role
 from .errors import ApiError
-from .knowledge import delete_document, index_state, ingest_document
+from .knowledge import analyze_support, delete_document, index_state, ingest_document
 from .llm import build_user_content, get_active_prompt, stream_llm
 from .security import create_access_token, verify_password
 from .tools import DISPATCH, TOOL_SCHEMAS
@@ -115,6 +116,9 @@ async def chat(body: ChatIn, request: Request, db: Session = Depends(get_db),
 
     # 检索 + 提示词
     contexts = index_state.retrieve(question, top_k=settings.TOP_K)
+    # 依据判定：top-k 永远有返回，若条文根本答不了这个问题，就必须直说「未找到」，
+    # 而不是把三段不相关文字塞给模型（模型会顺着硬编，这是最典型的幻觉来源）。
+    support = analyze_support(question, [c["content"] for c in contexts])
     system_prompt = get_active_prompt(db)
     user_content = build_user_content(question, contexts)
 
@@ -122,6 +126,27 @@ async def chat(body: ChatIn, request: Request, db: Session = Depends(get_db),
         yield sse("meta", {"session_id": session_id})
         yield sse("status", {"stage": "retrieving", "text": "正在匹配审核规则…"})
         full = ""
+        if not support.get("supported", True):
+            # 命中不了就说命中不了，并说明判定依据（可解释，便于审计）
+            text = ("规则中未找到相关条文。\n\n"
+                    f"（判定依据：{support.get('reason') or '检索到的条文与问题不匹配'}）\n\n"
+                    "为避免给出错误的上架标准，我不做推测。建议：\n"
+                    "- 联系合规部门或资深审核确认；\n"
+                    "- 由管理员在「规则知识库」补充对应制度文档后再咨询。")
+            for i in range(0, len(text), 24):
+                yield sse("delta", {"text": text[i:i + 24]})
+                await asyncio.sleep(0.01)
+            full = text
+            db2 = SessionLocal()
+            try:
+                db2.add(ChatMessage(session_id=session_id, role="assistant", content=full,
+                                    citations=json.dumps([], ensure_ascii=False),
+                                    seq=next_seq + 1))
+                db2.commit()
+            finally:
+                db2.close()
+            yield sse("done", {"finish_reason": "no_grounding"})
+            return
         try:
             async for delta in stream_llm(system_prompt, history, user_content):
                 full += delta

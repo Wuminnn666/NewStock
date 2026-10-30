@@ -19,7 +19,7 @@ CATEGORY_REQ = {
     "化妆品": ["营业执照", "化妆品生产许可证", "质检报告"],
     "3C数码": ["营业执照", "CCC证书", "品牌授权书"],
     "服饰": ["营业执照", "品牌授权书"],
-    "儿童玩具": ["营业执照", "CCC证书"],
+    "儿童玩具": ["营业执照", "CCC证书", "质检报告"],
 }
 BANNED_WORDS = ["最", "第一", "国家级", "全网最低", "绝对", "100%", "治疗", "根治"]
 
@@ -32,8 +32,18 @@ def _payload_hash(payload: dict) -> str:
 
 
 def search_review_rules(query: str, top_k: int = 3):
-    from .knowledge import index_state
-    return {"tool": "search_review_rules", "results": index_state.retrieve(query, top_k=top_k)}
+    """检索审核规则条文（只读）。
+
+    返回值里额外带一个 support 字段：检索层对「这批条文能否回答问题」的判断。
+    为什么要把置信度显式吐出来？
+        top-k 检索永远有返回，模型看到三段文字就容易硬编答案。
+        把「依据是否充分」变成结构化信号，决策器/提示词才有据可依，
+        该说「规则中未找到」的时候才说得出口。
+    """
+    from .knowledge import analyze_support, index_state
+    hits = index_state.retrieve(query, top_k=top_k)
+    support = analyze_support(query, [h.get("content", "") for h in hits])
+    return {"tool": "search_review_rules", "results": hits, "support": support}
 
 
 def get_category_requirements(category: str):
