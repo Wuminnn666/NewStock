@@ -111,6 +111,28 @@ def request_missing_material(session_id: str, items: list):
             "missing": items}
 
 
+def get_precheck_state(session_id: str) -> dict:
+    """【编排层专用】读取当前会话的预检状态。
+
+    Agent 在调用 create_goods_draft 前，会先用它做一次「门禁预判」：
+    若三项校验未全通过，就直接中断流程、把错误回灌给模型，而不是等工具抛异常。
+    这样模型能拿到结构化的失败原因（而不是一段堆栈），便于它自我修正。
+    """
+    st = _STATE.get(session_id, {})
+    return {
+        "material": bool(st.get("material")),
+        "qualification": bool(st.get("qualification")),
+        "compliance": bool(st.get("compliance")),
+        "token": st.get("token"),
+        "payload_hash": st.get("payload_hash"),
+    }
+
+
+def clear_precheck_state(session_id: str) -> None:
+    """清理会话预检状态（新一轮上架流程开始时可重置，避免脏状态复用）。"""
+    _STATE.pop(session_id, None)
+
+
 # ---------------- Function Calling 规范 ----------------
 TOOL_SCHEMAS = [
     {"name": "search_review_rules",

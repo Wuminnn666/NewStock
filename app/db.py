@@ -94,6 +94,60 @@ class ChatMessage(Base):
     created_at = Column(DateTime, default=now)
 
 
+# ---------------------------------------------------------------------------
+# Agent 编排层数据表
+# 三张表分工：
+#   agent_runs         一次「智能体执行」的总体记录（含决策上下文快照，支持中断后续跑）
+#   agent_steps        每一轮里每一次工具调用的明细（阶段 5 分析的核心数据源）
+#   agent_confirmations 人工确认单（create_goods_draft 执行前的强制中断凭证）
+# ---------------------------------------------------------------------------
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(64), unique=True, index=True)   # 对外暴露的执行 ID
+    session_id = Column(String(64), index=True)            # 关联聊天会话
+    user_id = Column(String(64), index=True)               # 触发人
+    question = Column(Text)                                # 原始提问
+    status = Column(String(24), default="running")         # running/waiting_confirm/done/failed/aborted
+    rounds = Column(Integer, default=0)                    # 已消耗的决策轮次
+    messages = Column(Text)                                # 决策上下文快照(JSON)，中断后靠它续跑
+    pending_call = Column(Text)                            # 挂起中的工具调用(JSON)
+    final_answer = Column(Text)                            # 最终回答
+    error = Column(Text)                                   # 失败原因
+    created_at = Column(DateTime, default=now)
+    updated_at = Column(DateTime, default=now, onupdate=now)
+
+
+class AgentStep(Base):
+    __tablename__ = "agent_steps"
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(64), index=True)
+    round_no = Column(Integer, default=0)      # 第几轮决策
+    step_no = Column(Integer, default=0)       # 该轮内第几个工具调用
+    tool_name = Column(String(64))
+    arguments = Column(Text)                   # 入参(JSON)
+    status = Column(String(16))                # ok/error/gate_blocked/skipped/confirm_pending
+    elapsed_ms = Column(Integer, default=0)    # 耗时（阶段 5 做性能分析）
+    result_summary = Column(String(500))       # 结果摘要（截断，便于看板展示）
+    error_code = Column(String(32))
+    created_at = Column(DateTime, default=now)
+
+
+class AgentConfirmation(Base):
+    __tablename__ = "agent_confirmations"
+    id = Column(Integer, primary_key=True)
+    confirm_id = Column(String(64), unique=True, index=True)
+    run_id = Column(String(64), index=True)
+    session_id = Column(String(64), index=True)
+    draft = Column(Text)                       # 展示给提交方的草稿内容(JSON)
+    payload = Column(Text)                     # 待创建的商品 payload(JSON，确认后原样使用)
+    precheck_token = Column(String(128))       # 预检令牌
+    status = Column(String(16), default="pending")  # pending/confirmed/rejected/expired
+    decided_by = Column(String(64))
+    decided_at = Column(DateTime)
+    created_at = Column(DateTime, default=now)
+
+
 def init_db():
     Base.metadata.create_all(engine)
 

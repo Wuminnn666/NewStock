@@ -104,6 +104,21 @@ def audit_page(request: Request, db: Session = Depends(get_db)):
         f_to=qp.get("date_to", ""), f_flagged=qp.get("flagged", "")))
 
 
+@router.get("/admin/agent")
+def agent_page(request: Request, db: Session = Depends(get_db)):
+    """执行轨迹页：智能体每次执行的轮次与工具明细（阶段 5 分析入口）。"""
+    from .agent import trace as agent_trace
+
+    user = _page_user(request, db)
+    if not user:
+        return RedirectResponse("/login")
+    if user.role not in ("reviewer", "admin"):
+        return RedirectResponse("/403")
+    runs = agent_trace.list_runs(limit=100)
+    return templates.TemplateResponse(request, "agent.html",
+                                      _ctx(request, user, "agent", "执行轨迹", runs=runs))
+
+
 @router.get("/403")
 def forbidden(request: Request, db: Session = Depends(get_db)):
     user = _page_user(request, db)

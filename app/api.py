@@ -299,3 +299,101 @@ def agent_invoke(name: str, body: dict, user=Depends(require_role("submitter", "
         return {"ok": True, "result": fn(**body)}
     except TypeError as e:
         raise ApiError("40001", f"工具参数错误：{e}", 400)
+
+
+# ===================== Agent 编排（执行循环 / 人工确认 / 轨迹查询） =====================
+class AgentRunIn(BaseModel):
+    session_id: str | None = None
+    question: str
+
+
+class AgentConfirmIn(BaseModel):
+    confirm_id: str
+    approved: bool
+
+
+def _ensure_session(db: Session, user, session_id: str | None, question: str) -> str:
+    """复用会话：传了就校验存在性，没传就新建（与 /api/chat 行为一致）。"""
+    if session_id:
+        if not db.get(ChatSession, session_id):
+            raise ApiError("40003", "会话不存在或已失效", 404)
+        return session_id
+    sid = "s_" + uuid.uuid4().hex[:12]
+    db.add(ChatSession(session_id=sid, user_id=str(user.id), title=question[:20]))
+    db.commit()
+    return sid
+
+
+@router.post("/api/agent/run")
+async def agent_run(body: AgentRunIn, db: Session = Depends(get_db),
+                    user=Depends(require_role("submitter", "admin"))):
+    """启动一次智能体执行，SSE 推送「决策 → 工具 → 结果」全过程。
+
+    事件序列：
+      meta → thinking → tool_call → tool_result …（循环）
+      → delta（最终答案分块）→ citations → done
+      若遇到 create_goods_draft：draft_start → draft_delta… → confirm_required（挂起）
+    """
+    from .agent import AgentHarness
+
+    question = (body.question or "").strip()
+    if not question:
+        raise ApiError("40001", "请求参数不合法：question 不能为空", 400)
+    if len(question) > settings.MAX_QUESTION_LEN:
+        raise ApiError("40002", f"问题内容超过 {settings.MAX_QUESTION_LEN} 字上限", 400)
+
+    session_id = _ensure_session(db, user, body.session_id, question)
+    harness = AgentHarness(session_id=session_id, user_id=str(user.id))
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
+    return StreamingResponse(harness.astream(question), media_type="text/event-stream",
+                             headers=headers)
+
+
+@router.post("/api/agent/confirm")
+async def agent_confirm(body: AgentConfirmIn, db: Session = Depends(get_db),
+                        user=Depends(require_role("submitter", "admin"))):
+    """人工确认草稿：同意则真正创建（续跑循环出结论），拒绝则取消。
+
+    同样返回 SSE，前端沿用同一套解析逻辑即可。
+    """
+    from .agent import AgentHarness
+    from .agent import trace as agent_trace
+
+    row = agent_trace.get_confirmation(body.confirm_id)
+    if not row:
+        raise ApiError("40401", "确认单不存在或已失效", 404)
+
+    harness = AgentHarness(session_id=row.session_id, user_id=str(user.id))
+    harness.load_pending(body.confirm_id)   # 提前校验，错误才能以 JSON 返回而不是断流
+    headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
+    return StreamingResponse(
+        harness.astream_confirm(body.confirm_id, body.approved, user.username),
+        media_type="text/event-stream", headers=headers)
+
+
+@router.get("/api/agent/runs")
+def agent_runs(limit: int = 50, db: Session = Depends(get_db),
+               user=Depends(require_role("reviewer", "admin"))):
+    """执行记录列表（阶段 5 分析入口）。"""
+    from .agent import trace as agent_trace
+    rows = agent_trace.list_runs(limit=limit)
+    return [{
+        "run_id": r.run_id, "session_id": r.session_id, "user_id": r.user_id,
+        "question": r.question, "status": r.status, "rounds": r.rounds,
+        "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "final_answer": (r.final_answer or "")[:200], "error": r.error,
+    } for r in rows]
+
+
+@router.get("/api/agent/runs/{run_id}/steps")
+def agent_run_steps(run_id: str, db: Session = Depends(get_db),
+                    user=Depends(require_role("reviewer", "admin"))):
+    """单次执行的逐轮明细：工具名 / 参数 / 耗时 / 结果摘要（阶段 5 的核心数据）。"""
+    from .agent import trace as agent_trace
+    steps = agent_trace.list_steps(run_id)
+    return [{
+        "round": s.round_no, "step": s.step_no, "tool": s.tool_name,
+        "arguments": s.arguments, "status": s.status, "elapsed_ms": s.elapsed_ms,
+        "summary": s.result_summary, "error_code": s.error_code,
+        "created_at": s.created_at.strftime("%H:%M:%S"),
+    } for s in steps]

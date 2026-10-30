@@ -42,6 +42,8 @@ NewStock/
 ├── requirements.txt
 ├── 审核制度.md               # 示例知识库（首次启动自动导入）
 ├── product_review_stage1.py  # 阶段1 离线原型（保留）
+├── agent_demo.py             # Agent 编排命令行演练（4 条典型场景）
+├── docs/                     # 编排设计说明 + 三条典型轨迹
 └── app/
     ├── main.py               # FastAPI 装配、异常处理、启动初始化
     ├── config.py             # 全部配置（环境变量可覆盖）
@@ -51,6 +53,11 @@ NewStock/
     ├── knowledge.py          # 解析、切片、Embedding、BM25+FAISS 检索
     ├── llm.py                # LLM 网关（可配置、流式、提示词动态生效）
     ├── tools.py              # Agent 工具规范 + 顺序硬门禁
+    ├── agent/                # Agent 编排层
+    │   ├── harness.py        #   执行循环（决策→工具→回填→中断确认）
+    │   ├── decider.py        #   决策器：LLM / 离线启发式
+    │   ├── prompts.py        #   编排提示词（流程契约 + few-shot）
+    │   └── trace.py          #   轨迹落库（runs / steps / confirmations）
     ├── api.py                # 全部 JSON 接口
     ├── pages.py              # SSR 页面路由
     ├── templates/            # Jinja2 页面
@@ -66,14 +73,40 @@ NewStock/
 - `GET|POST /api/admin/audit*` — 对话审计与消息级标记
 - `GET /api/agent/tools`、`POST /api/agent/tools/{name}` — Agent 工具规范与调用
 
+## Agent 编排层（执行循环）
+
+`app/agent/` 实现了「模型决策 → 执行工具 → 结果回填 → 再决策」的受控循环，最多 **5 轮**（`AGENT_MAX_ROUNDS`）。
+
+```bash
+python agent_demo.py          # 命令行跑 4 条典型场景（不需要 API Key）
+python agent_demo.py "帮我提交一款食品类商品的上架申请"
+```
+
+| 能力 | 实现 |
+|---|---|
+| 框架 | 自建 Harness（薄执行壳），决策器可替换：`LLMDecider`（OpenAI 兼容 Function Calling）／`HeuristicDecider`（离线规则脑） |
+| 轮次控制 | 一轮 = 一次模型决策，一轮内可串行多个工具调用；超预算时如实汇报「已完成/还差什么」 |
+| 逐轮日志 | `agent_steps`：轮次、工具名、参数、耗时、结果摘要、状态（ok/error/gate_blocked/skipped/confirm_pending） |
+| 强制中断 | `create_goods_draft` 前必停：草稿内容逐行流式推送 → 前端确认卡片 → 确认后才真正执行 |
+| 硬门禁 | 三项校验未全过时工具不执行，回填 `E-STATE-001`；令牌校验 `E-STATE-003` |
+
+接口：
+
+- `POST /api/agent/run` — 启动执行，SSE 推 `meta/thinking/tool_call/tool_result/draft_*/confirm_required/delta/citations/done`
+- `POST /api/agent/confirm` — 人工确认（`{confirm_id, approved}`），同意后从断点续跑
+- `GET /api/agent/runs`、`GET /api/agent/runs/{run_id}/steps` — 执行轨迹（阶段 5 分析数据源）
+- 页面 `/admin/agent` — 执行轨迹看板（审核员 / 管理员）
+
+详细设计见 [`docs/agent_design.md`](docs/agent_design.md)，三条典型轨迹见 [`docs/agent_trajectories.md`](docs/agent_trajectories.md)。
+
 ## 权限
 
 | 模块 | submitter | reviewer | admin |
 |---|---|---|---|
-| 聊天 | 是 | 否 | 是 |
+| 聊天 / Agent 执行 | 是 | 否 | 是 |
 | 规则库 | 否 | 否 | 是 |
 | 提示词 | 否 | 否 | 是 |
-| 审计 | 否 | 是 | 是 |
+| 审计 / 执行轨迹 | 否 | 是 | 是 |
 
 ## Agent 顺序约束
 

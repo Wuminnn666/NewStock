@@ -140,3 +140,35 @@ textarea{ resize:vertical; line-height:1.65; }
 .audit-role{ font-size:12px; color:var(--muted); margin-bottom:4px; font-weight:600; }
 .audit-content{ font-size:13px; white-space:pre-wrap; word-break:break-word; }
 .audit-actions{ margin-top:8px; }
+
+/* ============ Agent 执行轨迹（聊天页） ============ */
+.trace{ display:none; border:1px solid var(--border); border-radius:10px; background:#fbfcfe; margin-bottom:10px; overflow:hidden; }
+.trace.show{ display:block; }
+.trace-head{ display:flex; align-items:center; gap:8px; padding:8px 10px; font-size:12px; color:var(--muted); background:#f8fafc; border-bottom:1px solid var(--border); }
+.trace-head .tcap{ font-weight:600; color:var(--text); }
+.trace-head .tcount{ margin-left:auto; }
+.trace-body{ padding:4px 0; }
+.trace-row{ display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; cursor:pointer; }
+.trace-row:hover{ background:#f1f5f9; }
+.trace-row .ico{ width:14px; color:var(--muted); }
+.trace-row .tname{ color:var(--text); }
+.trace-row .tmeta{ margin-left:auto; color:var(--muted); font-size:11px; }
+.trace-row.ok .ico{ color:var(--ok); }
+.trace-row.error .ico{ color:var(--danger); }
+.trace-row.gate_blocked .ico{ color:var(--warn); }
+.trace-row.skipped{ opacity:.6; }
+.trace-row.running .tmeta{ color:var(--accent); }
+.trace-sum{ display:none; flex-basis:100%; color:var(--muted); font-size:11px; padding:4px 0 2px 22px; font-family:ui-monospace,Menlo,Consolas,monospace; word-break:break-all; }
+.trace-row.open .trace-sum{ display:block; }
+.trace-row.open{ flex-wrap:wrap; }
+
+/* ============ 草稿确认卡片 ============ */
+.draft-card{ border:1px solid #c7d2fe; border-radius:12px; background:var(--accent-soft); margin:10px 0; overflow:hidden; }
+.draft-card.await{ box-shadow:0 0 0 3px rgba(79,70,229,.12); }
+.draft-head{ padding:9px 12px; font-size:12px; font-weight:600; color:var(--accent); background:#e0e7ff; border-bottom:1px solid #c7d2fe; }
+.draft-body{ margin:0; padding:12px; font-size:12.5px; line-height:1.7; color:var(--text); white-space:pre-wrap; font-family:ui-monospace,Menlo,Consolas,"PingFang SC",monospace; background:#fff; }
+.draft-actions{ display:flex; gap:8px; padding:10px 12px; border-top:1px solid #c7d2fe; background:#f5f7ff; }
+.draft-tip{ padding:9px 12px; font-size:12px; color:var(--muted); border-top:1px solid #c7d2fe; background:#f8fafc; }
+
+/* 执行轨迹表格 */
+.muted-cell{ color:var(--muted); font-size:12.5px; }

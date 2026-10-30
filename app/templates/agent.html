@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>执行轨迹</h2>
+  <p class="desc">
+    智能体每一次执行都会留痕：轮次、工具调用、参数、耗时、结果摘要。
+    阶段 5 的「流程效率 / 越序尝试 / 中断率」分析都基于这里的 agent_runs / agent_steps。
+  </p>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>执行 ID</th><th>问题</th><th>轮次</th><th>状态</th>
+        <th>结论摘要</th><th>开始时间</th><th style="width:90px;">明细</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="mono">{{ r.run_id }}</td>
+        <td title="{{ r.question }}">{{ r.question[:36] }}{% if r.question|length > 36 %}…{% endif %}</td>
+        <td>{{ r.rounds }} 轮</td>
+        <td>
+          {% if r.status == 'done' %}<span class="tag ok">已完成</span>
+          {% elif r.status == 'waiting_confirm' %}<span class="tag warn">待确认</span>
+          {% elif r.status == 'failed' %}<span class="tag danger">失败</span>
+          {% else %}<span class="tag gray">{{ r.status }}</span>{% endif %}
+        </td>
+        <td class="muted-cell">{{ (r.final_answer or r.error or '—')[:40] }}</td>
+        <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td><button class="btn sm" data-run="{{ r.run_id }}">查看</button></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">暂无执行记录，先去「提交方咨询」提一个问题</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">执行明细</h3>
+      <button class="btn sm" id="modalClose">关闭</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function esc(s) {
+    return (s || '').replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  var mask = document.getElementById('modalMask');
+  document.getElementById('modalClose').onclick = function () { mask.classList.remove('show'); };
+  mask.onclick = function (e) { if (e.target === mask) mask.classList.remove('show'); };
+
+  var STATUS = { ok: '成功', error: '报错', gate_blocked: '门禁拦截', skipped: '跳过', confirm_pending: '待确认' };
+
+  document.querySelectorAll('[data-run]').forEach(function (btn) {
+    btn.onclick = async function () {
+      var runId = this.getAttribute('data-run');
+      document.getElementById('modalTitle').textContent = '执行明细 · ' + runId;
+      var body = document.getElementById('modalBody');
+      body.innerHTML = '加载中…';
+      mask.classList.add('show');
+
+      var r = await fetch('/api/agent/runs/' + runId + '/steps');
+      var steps = await r.json();
+      if (!r.ok) { body.textContent = steps.message || '加载失败'; return; }
+      if (!steps.length) { body.textContent = '该执行没有步骤记录。'; return; }
+
+      body.innerHTML = steps.map(function (s) {
+        var cls = s.status === 'ok' ? 'ok' : (s.status === 'skipped' ? 'gray' : 'danger');
+        return '<div class="audit-msg assistant">' +
+          '<div class="audit-role">第 ' + s.round + ' 轮 · 第 ' + s.step + ' 步　' +
+          '<span class="tag ' + cls + '">' + (STATUS[s.status] || s.status) + '</span>' +
+          '　<span class="mono">' + s.elapsed_ms + 'ms</span></div>' +
+          '<div class="audit-content"><b>' + esc(s.tool) + '</b><br>' +
+          '<span class="mono" style="font-size:12px;color:#6b7280;">' + esc(s.arguments).slice(0, 500) + '</span><br>' +
+          '<span style="font-size:12px;color:#6b7280;">结果：' + esc(s.summary).slice(0, 300) + '</span></div>' +
+          '</div>';
+      }).join('');
+    };
+  });
+</script>
+{% endblock %}

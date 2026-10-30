@@ -23,6 +23,7 @@
       {% endif %}
       {% if user.role in ['reviewer', 'admin'] %}
       <a class="nav-item {% if active == 'audit' %}active{% endif %}" href="/admin/audit">对话审计</a>
+      <a class="nav-item {% if active == 'agent' %}active{% endif %}" href="/admin/agent">执行轨迹</a>
       {% endif %}
     </nav>
     <div class="role-box">

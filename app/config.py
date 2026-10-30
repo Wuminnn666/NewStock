@@ -33,6 +33,14 @@ class Settings:
     MAX_QUESTION_LEN = int(os.getenv("MAX_QUESTION_LEN", "2000"))
     UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "20"))
 
+    # ---------------- Agent 编排 ----------------
+    # 最大决策轮次：一轮 = 一次模型决策，一轮内可以并发/串行发起多个工具调用
+    AGENT_MAX_ROUNDS = int(os.getenv("AGENT_MAX_ROUNDS", "5"))
+    # 人工确认单有效期（分钟），超时作废，防止过期草稿被误创建
+    AGENT_CONFIRM_TTL_MIN = int(os.getenv("AGENT_CONFIRM_TTL_MIN", "30"))
+    # 决策调用（非流式）超时秒数
+    AGENT_DECIDE_TIMEOUT = int(os.getenv("AGENT_DECIDE_TIMEOUT", "60"))
+
     # 默认系统提示词（作为初始数据写入数据库，不写死在业务逻辑里）
     DEFAULT_PROMPT = (
         "你是商品上架资料审核助手，只根据提供的审核规则条文回答，"
