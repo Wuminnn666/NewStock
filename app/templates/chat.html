@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="chat-wrap">
+  <div class="chat-card">
+    <div class="chat-head">
+      <div class="avatar bot">审</div>
+      <div>
+        <div class="title">商品上架资料审核助手</div>
+        <div class="sub">依据审核规则条文作答，不编造资质要求</div>
+      </div>
+    </div>
+    <div class="messages" id="messages">
+      <div class="msg">
+        <div class="avatar bot">审</div>
+        <div class="bubble"><div class="bubble-text">您好，我是商品上架资料审核助手。请描述商品资料或直接提问，我会依据审核规则给出初步意见，并附上引用来源。</div></div>
+      </div>
+    </div>
+    <div class="composer">
+      <input type="text" id="chatInput" placeholder="例如：这款儿童玩具宣称开发智力，需要什么资质？">
+      <button class="btn primary" id="sendBtn">发送</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/chat.js"></script>{% endblock %}

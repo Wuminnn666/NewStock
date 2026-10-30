@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>系统提示词模板</h2>
+  <p class="desc">保存在数据库中，保存后对下一次问答立即生效。当前版本：v{{ prompt.version if prompt else 1 }}</p>
+  <div class="field">
+    <label>系统提示词</label>
+    <textarea id="promptText" rows="9">{{ prompt.content if prompt else '' }}</textarea>
+  </div>
+  <button class="btn primary" id="saveBtn">保存并生效</button>
+  <span class="hint" id="savedAt"></span>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('saveBtn').onclick = async function () {
+    var content = document.getElementById('promptText').value.trim();
+    if (!content) { toast('提示词不能为空'); return; }
+    var r = await fetch('/api/admin/prompts/{{ prompt.id if prompt else 0 }}', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content })
+    });
+    var d = await r.json();
+    if (!r.ok) { toast(d.message || '保存失败'); return; }
+    toast('已保存，v' + d.version + ' 下一问生效');
+    setTimeout(function () { location.reload(); }, 700);
+  };
+</script>
+{% endblock %}

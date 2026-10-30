@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>上传审核规则文档</h2>
+  <p class="desc">支持 Markdown / PDF，上传后自动按 500 字切片、向量化入库，并立即参与检索。</p>
+  <div class="upload-row">
+    <input type="file" id="ruleFile" accept=".md,.pdf">
+    <select id="ruleCategory">
+      <option>审核规范</option>
+      <option>资质要求</option>
+      <option>禁售规则</option>
+      <option>资料格式</option>
+    </select>
+    <button class="btn primary" id="uploadBtn">上传并向量化</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>规则文档列表</h2>
+  <p class="desc">删除文档会同步移除其切片并重建向量索引。</p>
+  <table>
+    <thead>
+      <tr><th>文件名</th><th>分类</th><th>切片数</th><th>状态</th><th>上传时间</th><th style="width:90px;">操作</th></tr>
+    </thead>
+    <tbody>
+      {% for d in docs %}
+      <tr>
+        <td>{{ d.filename }}</td>
+        <td><span class="tag gray">{{ d.category }}</span></td>
+        <td>{{ d.chunk_count }}</td>
+        <td><span class="tag ok">{{ d.status }}</span></td>
+        <td>{{ d.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td><button class="btn sm danger" data-del="{{ d.id }}">删除</button></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">暂无规则文档，请先上传</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('uploadBtn').onclick = async function () {
+    var f = document.getElementById('ruleFile').files[0];
+    if (!f) { toast('请先选择 .md 或 .pdf 文件'); return; }
+    var fd = new FormData();
+    fd.append('file', f);
+    fd.append('category', document.getElementById('ruleCategory').value);
+    var r = await fetch('/api/admin/rules/upload', { method: 'POST', body: fd });
+    var d = await r.json();
+    if (!r.ok) { toast(d.message || '上传失败'); return; }
+    toast('上传成功，已切片 ' + d.chunk_count + ' 段并入库');
+    setTimeout(function () { location.reload(); }, 800);
+  };
+
+  document.querySelectorAll('[data-del]').forEach(function (btn) {
+    btn.onclick = async function () {
+      var id = this.getAttribute('data-del');
+      var r = await fetch('/api/admin/rules/' + id, { method: 'DELETE' });
+      var d = await r.json();
+      if (!r.ok) { toast(d.message || '删除失败'); return; }
+      toast('已删除并重建索引');
+      setTimeout(function () { location.reload(); }, 600);
+    };
+  });
+</script>
+{% endblock %}

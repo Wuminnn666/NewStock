@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · 商品上架审核系统</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="login-brand">
+      <span class="badge-logo lg">审</span>
+      <div>
+        <h1>商品上架与资料审核系统</h1>
+        <p>请使用账号登录</p>
+      </div>
+    </div>
+    <form id="loginForm">
+      <div class="field">
+        <label>用户名</label>
+        <input type="text" name="username" autocomplete="username" placeholder="submitter / reviewer / admin" required>
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input type="password" name="password" autocomplete="current-password" placeholder="默认 123456" required>
+      </div>
+      <div class="err" id="err"></div>
+      <button class="btn primary block" type="submit">登录</button>
+    </form>
+    <div class="login-hint">
+      演示账号：submitter / reviewer / admin，密码均为 123456
+    </div>
+  </div>
+  <script>
+    document.getElementById('loginForm').onsubmit = async function (e) {
+      e.preventDefault();
+      var fd = new FormData(e.target);
+      var err = document.getElementById('err');
+      err.textContent = '';
+      try {
+        var r = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: fd.get('username'), password: fd.get('password') })
+        });
+        var data = await r.json();
+        if (!r.ok) { err.textContent = data.message || '登录失败'; return; }
+        location.href = '/';
+      } catch (ex) {
+        err.textContent = '网络异常：' + ex.message;
+      }
+    };
+  </script>
+</body>
+</html>

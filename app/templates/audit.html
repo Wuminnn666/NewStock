@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>对话审计</h2>
+  <p class="desc">按提交方 / 时间筛选对话记录，标记疑似违规上架的咨询。</p>
+  <form class="filters" method="get" action="/admin/audit">
+    <div class="field">
+      <label>提交方</label>
+      <select name="submitter_id">
+        <option value="">全部</option>
+        {% for u in users %}
+        <option value="{{ u.id }}" {% if f_submitter == u.id|string %}selected{% endif %}>{{ u.display_name or u.username }}（{{ u.username }}）</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field"><label>开始日期</label><input type="date" name="date_from" value="{{ f_from }}"></div>
+    <div class="field"><label>结束日期</label><input type="date" name="date_to" value="{{ f_to }}"></div>
+    <div class="field">
+      <label>状态</label>
+      <select name="flagged">
+        <option value="">全部</option>
+        <option value="1" {% if f_flagged == '1' %}selected{% endif %}>仅疑似违规</option>
+        <option value="0" {% if f_flagged == '0' %}selected{% endif %}>仅正常</option>
+      </select>
+    </div>
+    <div class="field" style="flex:0 0 auto;"><button class="btn primary">筛选</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>会话 ID</th><th>提交方</th><th>首问摘要</th><th>消息数</th><th>疑似违规</th><th>时间</th><th style="width:90px;">操作</th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.session_id }}</td>
+        <td>{{ r.user_id }}</td>
+        <td>{{ r.title }}</td>
+        <td>{{ r.message_count }}</td>
+        <td>{% if r.flagged %}<span class="tag danger">疑似违规</span>{% else %}<span class="tag gray">正常</span>{% endif %}</td>
+        <td>{{ r.created_at }}</td>
+        <td><button class="btn sm" data-view="{{ r.session_id }}">查看</button></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">暂无对话记录</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">会话详情</h3>
+      <button class="btn sm" id="modalClose">关闭</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  var mask = document.getElementById('modalMask');
+  document.getElementById('modalClose').onclick = function () { mask.classList.remove('show'); };
+  mask.onclick = function (e) { if (e.target === mask) mask.classList.remove('show'); };
+
+  document.querySelectorAll('[data-view]').forEach(function (btn) {
+    btn.onclick = async function () {
+      var sid = this.getAttribute('data-view');
+      document.getElementById('modalTitle').textContent = '会话 ' + sid;
+      var body = document.getElementById('modalBody');
+      body.innerHTML = '加载中…';
+      mask.classList.add('show');
+      var r = await fetch('/api/admin/audit/conversations/' + sid + '/messages');
+      var msgs = await r.json();
+      if (!r.ok) { body.textContent = msgs.message || '加载失败'; return; }
+      body.innerHTML = msgs.map(function (m) {
+        return '<div class="audit-msg ' + m.role + '">' +
+          '<div class="audit-role">' + (m.role === 'user' ? '提交方' : '助手') + '</div>' +
+          '<div class="audit-content">' + escapeHtml(m.content) + '</div>' +
+          '<div class="audit-actions">' +
+          (m.role === 'assistant'
+            ? '<button class="btn sm ' + (m.flagged ? 'danger' : '') + '" data-flag="' + m.id + '" data-flagged="' + m.flagged + '">' +
+              (m.flagged ? '取消标记' : '标记疑似违规') + '</button>'
+            : '') +
+          '</div></div>';
+      }).join('');
+      body.querySelectorAll('[data-flag]').forEach(function (b) {
+        b.onclick = async function () {
+          var id = this.getAttribute('data-flag');
+          var cur = this.getAttribute('data-flagged') === 'true';
+          var rr = await fetch('/api/admin/audit/messages/' + id + '/flag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ flagged: !cur, reason: !cur ? '疑似违规上架咨询' : null })
+          });
+          var dd = await rr.json();
+          if (!rr.ok) { toast(dd.message || '操作失败'); return; }
+          toast(!cur ? '已标记为疑似违规' : '已取消标记');
+          setTimeout(function () { location.reload(); }, 600);
+        };
+      });
+    };
+  });
+</script>
+{% endblock %}

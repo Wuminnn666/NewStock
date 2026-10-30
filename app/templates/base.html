@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }} · 商品上架审核系统</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><span class="badge-logo">审</span><span>商品上架审核系统</span></div>
+      <div class="sub">Agent 化审核平台</div>
+    </div>
+    <nav>
+      {% if user.role in ['submitter', 'admin'] %}
+      <a class="nav-item {% if active == 'chat' %}active{% endif %}" href="/chat">提交方咨询</a>
+      {% endif %}
+      {% if user.role == 'admin' %}
+      <a class="nav-item {% if active == 'rules' %}active{% endif %}" href="/admin/rules">规则知识库</a>
+      <a class="nav-item {% if active == 'prompts' %}active{% endif %}" href="/admin/prompts">提示词模板</a>
+      {% endif %}
+      {% if user.role in ['reviewer', 'admin'] %}
+      <a class="nav-item {% if active == 'audit' %}active{% endif %}" href="/admin/audit">对话审计</a>
+      {% endif %}
+    </nav>
+    <div class="role-box">
+      <div class="label">当前角色</div>
+      <div class="role-name">{{ role_name }}</div>
+      <div class="sub" style="margin-bottom:10px;">{{ user.display_name or user.username }}</div>
+      <a class="btn sm" href="/api/auth/logout" style="width:100%;">退出登录</a>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <h1>{{ page_title }}</h1>
+      <div class="meta"><span class="pill gray">{{ role_name }}</span></div>
+    </header>
+    <section class="content">
+      {% block content %}{% endblock %}
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  window.toast = function (msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(t._t); t._t = setTimeout(function () { t.classList.remove('show'); }, 2200);
+  };
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>商品上架与资料审核系统 · 界面演示</title>
+<style>
+  /* ============ 设计变量（浅色 SaaS 风格） ============ */
+  :root{
+    --bg:#f4f6fa;
+    --panel:#ffffff;
+    --text:#1f2937;
+    --muted:#6b7280;
+    --border:#e5e7eb;
+    --accent:#4f46e5;
+    --accent-soft:#eef2ff;
+    --ok:#059669;
+    --ok-soft:#ecfdf5;
+    --warn:#b45309;
+    --warn-soft:#fffbeb;
+    --danger:#dc2626;
+    --danger-soft:#fef2f2;
+    --radius:12px;
+    --shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 16px rgba(15,23,42,.05);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px; line-height:1.55;
+  }
+
+  /* ============ 布局骨架 ============ */
+  .app{ display:flex; height:100vh; overflow:hidden; }
+
+  /* ---------- 侧边栏 ---------- */
+  .sidebar{
+    width:232px; flex:0 0 232px; background:var(--panel);
+    border-right:1px solid var(--border); display:flex; flex-direction:column;
+  }
+  .brand{ padding:20px 20px 14px; border-bottom:1px solid var(--border); }
+  .brand .logo{ display:flex; align-items:center; gap:10px; font-weight:700; font-size:15px; }
+  .brand .badge-logo{
+    width:28px; height:28px; border-radius:8px; background:var(--accent);
+    color:#fff; display:grid; place-items:center; font-size:13px; font-weight:700;
+  }
+  .brand .sub{ color:var(--muted); font-size:12px; margin-top:4px; }
+  nav{ padding:12px 10px; flex:1; overflow:auto; }
+  .nav-item{
+    display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px;
+    color:var(--muted); cursor:pointer; margin-bottom:2px; user-select:none;
+    border-left:3px solid transparent;
+  }
+  .nav-item:hover{ background:#f8fafc; color:var(--text); }
+  .nav-item.active{ background:var(--accent-soft); color:var(--accent); font-weight:600; border-left-color:var(--accent); }
+  .nav-dot{ width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.7; }
+
+  .role-box{ border-top:1px solid var(--border); padding:14px 16px; }
+  .role-box .label{ font-size:12px; color:var(--muted); margin-bottom:8px; }
+  .role-switch{ display:flex; gap:6px; flex-wrap:wrap; }
+  .role-btn{
+    flex:1; min-width:60px; padding:7px 6px; border:1px solid var(--border); background:#fff;
+    border-radius:8px; font-size:12px; color:var(--muted); cursor:pointer;
+  }
+  .role-btn.active{ background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+
+  /* ---------- 主区域 ---------- */
+  .main{ flex:1; display:flex; flex-direction:column; min-width:0; }
+  .topbar{
+    height:60px; flex:0 0 60px; background:var(--panel); border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; padding:0 24px;
+  }
+  .topbar h1{ font-size:16px; margin:0; font-weight:650; }
+  .topbar .meta{ display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; }
+  .pill{ padding:3px 10px; border-radius:999px; background:var(--accent-soft); color:var(--accent); font-weight:600; font-size:12px; }
+  .pill.gray{ background:#f1f5f9; color:var(--muted); }
+
+  .content{ flex:1; overflow:auto; padding:22px 24px 32px; }
+  .view{ display:none; max-width:1080px; margin:0 auto; }
+  .view.active{ display:block; }
+
+  /* ---------- 通用卡片 / 表格 / 表单 ---------- */
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:18px 20px; margin-bottom:16px;
+  }
+  .card h2{ font-size:15px; margin:0 0 4px; }
+  .card .desc{ color:var(--muted); font-size:12.5px; margin:0 0 14px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ text-align:left; padding:11px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  th{ color:var(--muted); font-weight:600; font-size:12px; background:#fafbfc; }
+  tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:#fafbff; }
+  .tag{ display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; }
+  .tag.ok{ background:var(--ok-soft); color:var(--ok); }
+  .tag.warn{ background:var(--warn-soft); color:var(--warn); }
+  .tag.danger{ background:var(--danger-soft); color:var(--danger); }
+  .tag.gray{ background:#f1f5f9; color:var(--muted); }
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:8px 14px; border-radius:9px; border:1px solid var(--border); background:#fff;
+    color:var(--text); font-size:13px; cursor:pointer; transition:.15s;
+  }
+  .btn:hover{ background:#f8fafc; }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.primary:hover{ filter:brightness(1.05); }
+  .btn.danger{ color:var(--danger); border-color:#fecaca; background:var(--danger-soft); }
+  .btn.sm{ padding:5px 10px; font-size:12px; border-radius:7px; }
+  .btn:disabled{ opacity:.55; cursor:not-allowed; }
+
+  .field{ margin-bottom:12px; }
+  .field label{ display:block; font-size:12.5px; color:var(--muted); margin-bottom:6px; }
+  input[type=text], input[type=date], select, textarea{
+    width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:9px;
+    font-size:13px; color:var(--text); background:#fff; outline:none;
+    font-family:inherit;
+  }
+  input:focus, select:focus, textarea:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  textarea{ resize:vertical; line-height:1.65; }
+  .filters{ display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  .filters .field{ margin-bottom:0; flex:1; min-width:150px; }
+
+  /* ---------- 聊天界面 ---------- */
+  .chat-wrap{ display:flex; flex-direction:column; height:calc(100vh - 140px); min-height:480px; }
+  .chat-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow); display:flex; flex-direction:column; flex:1; overflow:hidden;
+  }
+  .chat-head{ padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  .chat-head .title{ font-weight:650; }
+  .chat-head .sub{ color:var(--muted); font-size:12px; }
+  .messages{ flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+  .msg{ display:flex; gap:10px; max-width:82%; }
+  .msg.user{ align-self:flex-end; flex-direction:row-reverse; }
+  .avatar{
+    width:30px; height:30px; border-radius:9px; flex:0 0 30px; display:grid; place-items:center;
+    font-size:12px; font-weight:700; color:#fff;
+  }
+  .avatar.bot{ background:var(--accent); }
+  .avatar.me{ background:#0ea5e9; }
+  .bubble{
+    background:#f7f8fb; border:1px solid var(--border); border-radius:12px;
+    padding:11px 14px; font-size:13.5px; white-space:pre-wrap; word-break:break-word;
+  }
+  .msg.user .bubble{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .bubble-text{ min-height:1px; }
+  .cursor{ display:inline-block; width:7px; height:15px; background:var(--accent); margin-left:2px; vertical-align:-2px; animation:blink 1s steps(1) infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  .citations{
+    margin-top:10px; border-top:1px dashed var(--border); padding-top:9px;
+  }
+  .citations .cap{ font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:600; }
+  .cite{
+    background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px 10px;
+    margin-bottom:6px; font-size:12.5px;
+  }
+  .cite .file{ color:var(--accent); font-weight:600; }
+  .cite .score{ color:var(--muted); font-size:11.5px; margin-left:6px; }
+  .cite .snip{ color:var(--muted); margin-top:3px; }
+
+  .status-line{
+    display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12.5px;
+    align-self:flex-start; padding-left:40px;
+  }
+  .dots span{ display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--accent); margin-right:3px; animation:bounce 1.2s infinite; }
+  .dots span:nth-child(2){ animation-delay:.15s; }
+  .dots span:nth-child(3){ animation-delay:.3s; }
+  @keyframes bounce{ 0%,80%,100%{ transform:translateY(0); opacity:.4; } 40%{ transform:translateY(-4px); opacity:1; } }
+
+  .composer{ border-top:1px solid var(--border); padding:12px 14px; display:flex; gap:10px; background:#fff; }
+  .composer input{ flex:1; }
+  .composer .btn{ padding:9px 18px; }
+
+  /* ---------- 提示条 ---------- */
+  .toast{
+    position:fixed; right:24px; bottom:24px; background:#111827; color:#fff; padding:11px 16px;
+    border-radius:10px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,.18);
+    opacity:0; transform:translateY(8px); transition:.25s; pointer-events:none; z-index:99;
+  }
+  .toast.show{ opacity:1; transform:translateY(0); }
+
+  .hint{ font-size:12px; color:var(--muted); margin-top:8px; }
+  .empty{ color:var(--muted); text-align:center; padding:32px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ================= 侧边栏 ================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><span class="badge-logo">审</span><span>商品上架审核系统</span></div>
+      <div class="sub">Agent 化 · 演示界面</div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="role-box">
+      <div class="label">切换角色（演示 RBAC）</div>
+      <div class="role-switch" id="roleSwitch">
+        <button class="role-btn" data-role="submitter">提交方</button>
+        <button class="role-btn" data-role="reviewer">审核员</button>
+        <button class="role-btn active" data-role="admin">管理员</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ================= 主区域 ================= -->
+  <div class="main">
+    <header class="topbar">
+      <h1 id="pageTitle">提交方咨询</h1>
+      <div class="meta">
+        <span class="pill gray" id="rolePill">管理员</span>
+        <span>演示数据 · 无需后端</span>
+      </div>
+    </header>
+
+    <section class="content">
+      <!-- ---------- 视图：提交方聊天 ---------- -->
+      <div class="view active" id="view-chat">
+        <div class="chat-wrap">
+          <div class="chat-card">
+            <div class="chat-head">
+              <div class="avatar bot">审</div>
+              <div>
+                <div class="title">商品上架资料审核助手</div>
+                <div class="sub">依据审核规则条文作答，不编造资质要求</div>
+              </div>
+            </div>
+            <div class="messages" id="messages"></div>
+            <div class="composer">
+              <input type="text" id="chatInput" placeholder="描述商品资料或提问，例如：这款儿童玩具宣称开发智力，需要什么资质？" />
+              <button class="btn primary" id="sendBtn">发送</button>
+            </div>
+          </div>
+          <div class="hint">提示：回答底部会展示引用的审核规则来源（文件名 + 片段）。</div>
+        </div>
+      </div>
+
+      <!-- ---------- 视图：规则知识库 ---------- -->
+      <div class="view" id="view-rules">
+        <div class="card">
+          <h2>上传审核规则文档</h2>
+          <p class="desc">支持 Markdown / PDF，上传后自动按 500 字切片、向量化入库，并立即参与检索。</p>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <input type="file" id="ruleFile" accept=".md,.pdf" style="max-width:320px;" />
+            <select id="ruleCategory" style="max-width:180px;">
+              <option value="审核规范">审核规范</option>
+              <option value="资质要求">资质要求</option>
+              <option value="禁售规则">禁售规则</option>
+              <option value="资料格式">资料格式</option>
+            </select>
+            <button class="btn primary" id="uploadBtn">上传并切片向量化</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>规则文档列表</h2>
+          <p class="desc">删除文档会同步移除其切片并重建向量索引。</p>
+          <table>
+            <thead>
+              <tr><th>文件名</th><th>分类</th><th>切片数</th><th>状态</th><th>更新时间</th><th style="width:90px;">操作</th></tr>
+            </thead>
+            <tbody id="rulesBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ---------- 视图：提示词模板 ---------- -->
+      <div class="view" id="view-prompts">
+        <div class="card">
+          <h2>系统提示词模板</h2>
+          <p class="desc">保存在数据库中，保存后对下一次问答立即生效（无需重启）。当前版本：<b id="promptVer">v1</b></p>
+          <div class="field">
+            <label>系统提示词</label>
+            <textarea id="promptText" rows="9"></textarea>
+          </div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <button class="btn primary" id="savePromptBtn">保存并生效</button>
+            <button class="btn" id="resetPromptBtn">恢复默认</button>
+            <span class="hint" style="margin:0;" id="promptSavedAt"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- 视图：对话审计 ---------- -->
+      <div class="view" id="view-audit">
+        <div class="card">
+          <h2>对话审计</h2>
+          <p class="desc">按提交方 / 时间筛选对话记录，标记疑似违规上架的咨询。</p>
+          <div class="filters">
+            <div class="field">
+              <label>提交方</label>
+              <select id="fSubmitter">
+                <option value="">全部</option>
+                <option value="u_10086">u_10086 · 张三</option>
+                <option value="u_20001">u_20001 · 李四</option>
+                <option value="u_30007">u_30007 · 王五</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>开始日期</label>
+              <input type="date" id="fFrom" />
+            </div>
+            <div class="field">
+              <label>结束日期</label>
+              <input type="date" id="fTo" />
+            </div>
+            <div class="field" style="flex:0 0 auto;">
+              <label>&nbsp;</label>
+              <button class="btn primary" id="filterBtn">筛选</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <table>
+            <thead>
+              <tr><th>会话 ID</th><th>提交方</th><th>首问摘要</th><th>消息数</th><th>疑似违规</th><th>时间</th><th style="width:110px;">操作</th></tr>
+            </thead>
+            <tbody id="auditBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =====================================================================
+   纯前端演示逻辑（模拟数据，不连接后端）
+   真实实现时：聊天走 POST /api/chat 的 SSE；其余走对应 REST 接口
+   ===================================================================== */
+
+/* ---------- 全局状态 ---------- */
+const state = {
+  role: 'admin',
+  view: 'chat',
+  promptVersion: 1,
+  chat: [],
+  rules: [
+    { id:'r1', file:'审核制度.md',        cat:'审核规范', chunks:3,  status:'已生效', time:'2026-10-30 09:40' },
+    { id:'r2', file:'品类资质要求.pdf',   cat:'资质要求', chunks:8,  status:'已生效', time:'2026-10-29 16:12' },
+    { id:'r3', file:'禁售商品清单.md',    cat:'禁售规则', chunks:5,  status:'已生效', time:'2026-10-28 11:05' },
+  ],
+  audit: [
+    { sid:'s_20261030_a1', user:'u_10086 · 张三', q:'儿童玩具宣称开发智力...', n:6,  flagged:true,  time:'2026-10-30 10:12' },
+    { sid:'s_20261030_b2', user:'u_20001 · 李四', q:'化妆品美白淡斑需要资质', n:4,  flagged:false, time:'2026-10-30 09:58' },
+    { sid:'s_20261030_c3', user:'u_30007 · 王五', q:'如何上架进口食品',       n:10, flagged:false, time:'2026-10-29 18:30' },
+    { sid:'s_20261029_d4', user:'u_10086 · 张三', q:'标题写全网最低价可以吗',   n:2,  flagged:true,  time:'2026-10-29 15:20' },
+  ],
+};
+
+const DEFAULT_PROMPT =
+  '你是商品上架资料审核助手，只根据提供的审核规则条文回答，不确定时明确说"规则中未找到"，回答末尾附引用来源，不得编造资质要求与上架标准。';
+
+/* ---------- 导航项与角色权限 ---------- */
+const NAV = [
+  { id:'chat',    label:'提交方咨询', roles:['submitter','admin'] },
+  { id:'rules',   label:'规则知识库', roles:['admin'] },
+  { id:'prompts', label:'提示词模板', roles:['admin'] },
+  { id:'audit',   label:'对话审计',   roles:['reviewer','admin'] },
+];
+const ROLE_NAME = { submitter:'提交方', reviewer:'审核员', admin:'管理员' };
+
+/* ---------- 工具函数 ---------- */
+const $ = (s) => document.querySelector(s);
+/* 预览环境可能禁用 localStorage，做安全兜底 */
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e){} }
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+/* ---------- 渲染：导航与视图切换 ---------- */
+function renderNav(){
+  const nav = $('#nav');
+  nav.innerHTML = '';
+  NAV.filter(n => n.roles.includes(state.role)).forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'nav-item' + (n.id === state.view ? ' active' : '');
+    el.innerHTML = '<span class="nav-dot"></span><span>' + n.label + '</span>';
+    el.onclick = () => switchView(n.id);
+    nav.appendChild(el);
+  });
+}
+
+function switchView(id){
+  state.view = id;
+  // 若当前角色无权访问，回退到第一个允许的视图
+  const allowed = NAV.filter(n => n.roles.includes(state.role)).map(n => n.id);
+  if (!allowed.includes(id)) id = allowed[0];
+  state.view = id;
+
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const target = document.getElementById('view-' + id);
+  if (target) target.classList.add('active');
+
+  const navItem = NAV.find(n => n.id === id);
+  $('#pageTitle').textContent = navItem ? navItem.label : '';
+  renderNav();
+}
+
+/* ---------- 聊天：渲染与发送 ---------- */
+function renderChat(){
+  const box = $('#messages');
+  box.innerHTML = '';
+  state.chat.forEach((m, idx) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + (m.role === 'user' ? 'user' : '');
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar ' + (m.role === 'user' ? 'me' : 'bot');
+    avatar.textContent = m.role === 'user' ? '我' : '审';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.id = 'bubble-' + idx;
+
+    const text = document.createElement('div');
+    text.className = 'bubble-text';
+    text.textContent = m.text || '';
+    if (m.pending) {
+      const cur = document.createElement('span');
+      cur.className = 'cursor';
+      text.appendChild(cur);
+    }
+    bubble.appendChild(text);
+
+    // 引用来源（回答底部统一展示）
+    if (m.citations && m.citations.length) {
+      const cites = document.createElement('div');
+      cites.className = 'citations';
+      cites.innerHTML = '<div class="cap">依据的审核规则</div>' + m.citations.map(c =>
+        '<div class="cite"><span class="file">' + c.file + '</span>' +
+        '<span class="score">片段#' + c.chunk + ' · 相关度 ' + c.score + '</span>' +
+        '<div class="snip">' + c.snippet + '</div></div>'
+      ).join('');
+      bubble.appendChild(cites);
+    }
+
+    wrap.appendChild(avatar);
+    wrap.appendChild(bubble);
+    box.appendChild(wrap);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+/* 根据问题选择一条模拟回答（真实实现由 LLM + RAG 生成） */
+function mockAnswer(q){
+  const isToy = /玩具|儿童|智力/.test(q);
+  const isFood = /食品|进口|保质期/.test(q);
+  if (isFood) {
+    return {
+      text:'根据《审核制度》第 2.1 条，食品类（含保健食品）需提供：营业执照、食品经营许可证、对应批次质检报告；进口食品还需报关单与检验检疫证明。请确认上述资质均在有效期内后提交。',
+      citations:[
+        { file:'审核制度.md', chunk:'2.1', score:'0.92', snippet:'食品类需提供营业执照、食品经营许可证、对应批次的质检报告；进口食品还需报关单与检验检疫证明。' },
+      ],
+    };
+  }
+  if (isToy) {
+    return {
+      text:'根据《审核制度》第 4.2 条，商品标题与描述不得使用绝对化用语（如"最""第一""国家级"），也不得夸大疗效或虚假宣传。你提到的"全网最低价""开发智力提升智商"属于典型违规表述，建议删除或改为客观描述。同时儿童玩具需补充 3C 认证等类目资质后再提交。',
+      citations:[
+        { file:'审核制度.md', chunk:'4.2', score:'0.93', snippet:'标题与描述：不得出现《广告法》禁止的绝对化用语、虚假宣传、诱导外链话术。' },
+        { file:'品类资质要求.pdf', chunk:'3.1', score:'0.86', snippet:'3C 数码及儿童玩具类需提供国家强制性产品认证（CCC）证书。' },
+      ],
+    };
+  }
+  return {
+    text:'根据《审核制度》第 1 条，所有商品在上架前必须经过资料审核与合规校验，未通过审核不得对外展示。请补充商品类目、资质材料与详情描述，我会据此给出初步审核意见；如涉及具体规则，请说明品类。',
+    citations:[
+      { file:'审核制度.md', chunk:'1.0', score:'0.78', snippet:'所有商品在上架销售前，必须经过资料审核与合规校验，未通过审核的商品一律不得对外展示或交易。' },
+    ],
+  };
+}
+
+let typingLock = false;
+function sendMessage(){
+  if (typingLock) return;
+  const input = $('#chatInput');
+  const q = input.value.trim();
+  if (!q) { toast('请输入内容后再发送'); return; }
+  input.value = '';
+  state.chat.push({ role:'user', text:q });
+  renderChat();
+
+  // 状态条：正在匹配审核规则…
+  const box = $('#messages');
+  const status = document.createElement('div');
+  status.className = 'status-line';
+  status.innerHTML = '<span class="dots"><span></span><span></span><span></span></span><span>正在匹配审核规则…</span>';
+  box.appendChild(status);
+  box.scrollTop = box.scrollHeight;
+
+  typingLock = true;
+  $('#sendBtn').disabled = true;
+
+  setTimeout(() => {
+    status.remove();
+    const ans = mockAnswer(q);
+    const msg = { role:'assistant', text:'', citations:[], pending:true };
+    state.chat.push(msg);
+    renderChat();
+
+    // 打字机效果：逐字追加
+    const idx = state.chat.length - 1;
+    const targetEl = document.querySelector('#bubble-' + idx + ' .bubble-text');
+    let i = 0;
+    const timer = setInterval(() => {
+      i++;
+      msg.text = ans.text.slice(0, i);
+      if (targetEl) {
+        targetEl.textContent = msg.text;
+        const cur = document.createElement('span');
+        cur.className = 'cursor';
+        targetEl.appendChild(cur);
+        box.scrollTop = box.scrollHeight;
+      }
+      if (i >= ans.text.length) {
+        clearInterval(timer);
+        msg.pending = false;
+        msg.citations = ans.citations;
+        renderChat();
+        typingLock = false;
+        $('#sendBtn').disabled = false;
+        input.focus();
+      }
+    }, 28);
+  }, 900);
+}
+
+/* ---------- 规则知识库 ---------- */
+function renderRules(){
+  const body = $('#rulesBody');
+  body.innerHTML = '';
+  state.rules.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + r.file + '</td>' +
+      '<td><span class="tag gray">' + r.cat + '</span></td>' +
+      '<td>' + r.chunks + '</td>' +
+      '<td><span class="tag ok">' + r.status + '</span></td>' +
+      '<td>' + r.time + '</td>' +
+      '<td><button class="btn sm danger" data-del="' + r.id + '">删除</button></td>';
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('[data-del]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.getAttribute('data-del');
+      const doc = state.rules.find(r => r.id === id);
+      if (!doc) return;
+      // 演示环境去掉 confirm（部分预览禁用），直接删除
+      state.rules = state.rules.filter(r => r.id !== id);
+      renderRules();
+      toast('已删除并重建索引');
+    };
+  });
+}
+
+function uploadRule(){
+  const fileInput = $('#ruleFile');
+  const cat = $('#ruleCategory').value;
+  const f = fileInput.files && fileInput.files[0];
+  if (!f) { toast('请先选择一个 .md 或 .pdf 文件'); return; }
+  if (!/\.(md|pdf)$/i.test(f.name)) { toast('不支持的文件类型（仅 md/pdf）'); return; }
+  if (f.size > 20 * 1024 * 1024) { toast('文件超过 20MB 上限'); return; }
+
+  // 模拟：切片数按文件大小估算
+  const chunks = Math.max(1, Math.round(f.size / 500));
+  state.rules.unshift({
+    id: 'r' + Date.now(),
+    file: f.name,
+    cat,
+    chunks,
+    status: '已生效',
+    time: new Date().toLocaleString('zh-CN', { hour12:false }).replace(/\//g,'-'),
+  });
+  fileInput.value = '';
+  renderRules();
+  toast('上传成功，已切片 ' + chunks + ' 段并向量化入库');
+}
+
+/* ---------- 提示词模板 ---------- */
+function renderPrompt(){
+  $('#promptText').value = lsGet('promptContent') || DEFAULT_PROMPT;
+  $('#promptVer').textContent = 'v' + state.promptVersion;
+}
+function savePrompt(){
+  const content = $('#promptText').value.trim();
+  if (!content) { toast('提示词不能为空'); return; }
+  lsSet('promptContent', content);
+  state.promptVersion++;
+  $('#promptVer').textContent = 'v' + state.promptVersion;
+  $('#promptSavedAt').textContent = '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour12:false }) + '，下一问生效';
+  toast('已保存，下一问立即生效');
+}
+function resetPrompt(){
+  $('#promptText').value = DEFAULT_PROMPT;
+  toast('已恢复默认模板（尚未保存）');
+}
+
+/* ---------- 对话审计 ---------- */
+function renderAudit(){
+  const user = $('#fSubmitter').value;
+  const body = $('#auditBody');
+  const rows = state.audit.filter(a => !user || a.user.startsWith(user));
+  body.innerHTML = '';
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">没有符合条件的对话</td></tr>';
+    return;
+  }
+  rows.forEach(a => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td style="font-family:monospace;font-size:12px;">' + a.sid + '</td>' +
+      '<td>' + a.user + '</td>' +
+      '<td>' + a.q + '</td>' +
+      '<td>' + a.n + '</td>' +
+      '<td>' + (a.flagged ? '<span class="tag danger">疑似违规</span>' : '<span class="tag gray">正常</span>') + '</td>' +
+      '<td>' + a.time + '</td>' +
+      '<td><button class="btn sm" data-flag="' + a.sid + '">' + (a.flagged ? '取消标记' : '标记违规') + '</button></td>';
+    body.appendChild(tr);
+  });
+  body.querySelectorAll('[data-flag]').forEach(btn => {
+    btn.onclick = () => {
+      const sid = btn.getAttribute('data-flag');
+      const row = state.audit.find(a => a.sid === sid);
+      row.flagged = !row.flagged;
+      renderAudit();
+      toast(row.flagged ? '已标记为疑似违规' : '已取消标记');
+    };
+  });
+}
+
+/* ---------- 角色切换 ---------- */
+function setRole(role){
+  state.role = role;
+  document.querySelectorAll('.role-btn').forEach(b => b.classList.toggle('active', b.dataset.role === role));
+  $('#rolePill').textContent = ROLE_NAME[role];
+
+  const allowed = NAV.filter(n => n.roles.includes(role)).map(n => n.id);
+  if (!allowed.includes(state.view)) state.view = allowed[0];
+  switchView(state.view);
+}
+
+/* ---------- 初始化 ---------- */
+function init(){
+  state.chat = [{
+    role:'assistant',
+    text:'您好，我是商品上架资料审核助手。请描述商品资料或直接提问，我会依据审核规则条文给出初步意见，并附上引用来源。',
+    citations:[],
+  }];
+  renderChat();
+  renderRules();
+  renderPrompt();
+  renderAudit();
+  renderNav();
+
+  $('#sendBtn').onclick = sendMessage;
+  $('#chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+  $('#uploadBtn').onclick = uploadRule;
+  $('#savePromptBtn').onclick = savePrompt;
+  $('#resetPromptBtn').onclick = resetPrompt;
+  $('#filterBtn').onclick = renderAudit;
+
+  document.querySelectorAll('.role-btn').forEach(b => {
+    b.onclick = () => setRole(b.dataset.role);
+  });
+  setRole('admin');
+}
+init();
+</script>
+</body>
+</html>

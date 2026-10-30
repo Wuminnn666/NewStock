@@ -3,3 +3,5 @@ __pycache__/
 .rag_cache/
 .env
 *.zip
+data.db
+*.db
