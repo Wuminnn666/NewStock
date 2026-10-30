@@ -61,12 +61,21 @@ class Gh:
 
 
 def local_files() -> dict:
-    """path -> blob sha（用 --raw 的 sha，避免把文件内容读进内存两次）。"""
+    """path -> (blob sha, mode)。
+
+    必须用 `-z`（NUL 分隔）解析：默认输出会把非 ASCII 路径转成 "\\345\\256..." 这种
+    八进制转义，照着这个字符串建 blob，远端就会出现一个名字是转义串的假文件，
+    而真正的中文文件名反倒被判成「已删除」——中文项目里这是必踩的坑。
+    """
     out = {}
-    for line in sh("git", "ls-files", "-s").splitlines():
-        meta, path = line.split("\t", 1)
-        _mode, sha, _stage = meta.split()
-        out[path] = (sha, _mode)
+    raw = subprocess.run(["git", "ls-files", "-s", "-z"],
+                         capture_output=True, check=True).stdout
+    for item in raw.split(b"\x00"):
+        if not item:
+            continue
+        meta, path = item.split(b"\t", 1)
+        _mode, sha, _stage = meta.decode().split()
+        out[path.decode("utf-8")] = (sha, _mode)
     return out
 
 
