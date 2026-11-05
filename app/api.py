@@ -36,6 +36,16 @@ def sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def _refuse_stream(message: str):
+    """安全拒绝的统一流式输出：与正常回答同样走 SSE（前端同一套解析逻辑，
+    用户看到的是一条正常气泡，而不是突兀的 HTTP 错误）。"""
+    # 分块输出，前端打字机效果与正常回答一致
+    step = 24
+    for i in range(0, len(message), step):
+        yield sse("delta", {"text": message[i:i + step]})
+    yield sse("done", {"finish_reason": "security_refusal"})
+
+
 def sse_response(agen):
     """所有流式接口的统一出口。
 
@@ -521,11 +531,22 @@ async def agent_run(body: AgentRunIn, db: Session = Depends(get_db),
     if not settings.AGENT_ENABLED:
         raise ApiError("50302", "智能审核功能维护中，可先使用规则条文问答或稍后重试", 503)
     enforce_rate("agent", str(user.id), settings.RATE_AGENT_PER_MIN)
-    # 注入特征留痕（不阻断：越权由服务端工具门禁兜底，这里只负责可追溯）
+    # ---- 安全前置判定（agent 通道能创建草稿，风险高于纯问答，这里必须硬拒绝）----
+    # 1) 套取系统提示词/规则库之外的内建信息：规则化拒答
+    if is_prompt_extraction(question):
+        record_security_event("prompt_extraction", user.id, body.session_id or "",
+                              "agent | " + question, "refused")
+        return sse_response(_refuse_stream(
+            "抱歉，系统提示词与内部配置不属于咨询范围，我不能提供。"
+            "如果你是想了解审核规则，可以直接问，例如：某类商品上架需要什么资质？"))
+    # 2) 提示词注入（如「忽略之前的指令」）：拒绝执行并留痕，而不是照做
     _hits = detect_injection(question)
     if _hits:
         record_security_event("injection_attempt", user.id, body.session_id or "",
-                              "agent | 命中:" + ",".join(_hits) + " | " + question, "logged")
+                              "agent | 命中:" + ",".join(_hits) + " | " + question, "refused")
+        return sse_response(_refuse_stream(
+            "检测到指令注入特征（如试图让我忽略既有审核规则），已拒绝执行并记录安全事件。"
+            "如需正常办理，请直接描述你的商品与材料，例如：我要上架儿童玩具，已有营业执照和质检报告。"))
 
     session_id = _ensure_session(db, user, body.session_id, question)
     harness = AgentHarness(session_id=session_id, user_id=str(user.id))
