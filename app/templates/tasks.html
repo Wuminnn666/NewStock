@@ -35,7 +35,9 @@
         <td class="mono">{{ t.confirmed_at.strftime('%m-%d %H:%M') if t.confirmed_at else '—' }}</td>
         <td>
           {% if t.status == '待处理' %}
-          <button class="btn sm primary" onclick="confirmTask({{ t.id }})">确认已处置</button>
+          <span id="op-{{ t.id }}">
+            <button class="btn sm primary" onclick="showNote({{ t.id }})">确认已处置</button>
+          </span>
           {% else %}<span class="tag gray">闭环</span>{% endif %}
         </td>
       </tr>
@@ -47,14 +49,32 @@
 </div>
 
 <script>
+// 不使用 prompt/confirm 弹窗（沙箱预览环境会拦截），改为行内展开输入框
+function showNote(id) {
+  document.getElementById('op-' + id).innerHTML =
+    '<input id="note-' + id + '" placeholder="处理说明（可空）" ' +
+    'style="width:100%;margin-bottom:4px;">' +
+    '<button class="btn sm primary" onclick="confirmTask(' + id + ')">确定</button>';
+}
+
 async function confirmTask(id) {
-  var note = prompt('处理说明（将记入工单，可留空）：') || '';
-  var resp = await fetch('/api/admin/tasks/' + id + '/confirm', {
-    method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({note: note})
-  });
-  if (resp.ok) { location.reload(); }
-  else { alert('确认失败：' + resp.status); }
+  var note = '';
+  var box = document.getElementById('note-' + id);
+  if (box) { note = box.value || ''; }
+  try {
+    var resp = await fetch('/api/admin/tasks/' + id + '/confirm', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({note: note})
+    });
+    if (resp.ok) { location.reload(); }
+    else {
+      var msg = '确认失败：HTTP ' + resp.status;
+      try { msg += ' ' + (await resp.json()).detail; } catch (e) {}
+      alert(msg);
+    }
+  } catch (e) {
+    alert('网络错误：' + e);
+  }
 }
 </script>
 {% endblock %}
