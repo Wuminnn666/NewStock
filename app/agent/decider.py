@@ -312,7 +312,9 @@ def _plan(question: str, session_id: str, history: str = ""):
 
     if intent == "qa":
         calls = []
-        if _has(question, ASK_MATERIAL_HINTS):
+        # 「还缺什么/还差什么/补什么」没有出现"资质/材料"字样，但同样需要类目清单
+        if _has(question, ASK_MATERIAL_HINTS) or _has(question, (
+                "还缺", "缺什么", "缺哪些", "还差", "补什么", "差哪些")):
             calls.append(ToolCall("get_category_requirements", {"category": cat}))
         calls.append(ToolCall("search_review_rules", {"query": question, "top_k": 3}))
         return [calls]
@@ -379,11 +381,18 @@ def _missing_answer(last: dict) -> str:
 
 
 def _qa_answer(question: str, results) -> str:
-    """基于检索片段拼一个「离线可读」的回答；没有依据时明确说未找到。"""
-    snippets, reqs, support = [], None, None
+    """基于检索片段拼一个「离线可读」的回答；没有依据时明确说未找到。
+
+    离线模式没有 LLM 来组织语言，所以这里做两级提炼：
+    1) 能算出「还缺什么」的，直接给结论（类目要求 - 已提供材料）；
+    2) 其余从命中条文里抽取包含问题关键词的句子，而不是整段贴开头——
+       整段贴出来用户找不到答案在哪，观感上就是"答非所问"。
+    """
+    snippets, reqs, category, support = [], None, "", None
     for r in results:
         if r.get("tool") == "get_category_requirements":
             reqs = r.get("required")
+            category = r.get("category") or ""
         if r.get("tool") == "search_review_rules":
             support = r.get("support")
             snippets.extend(r.get("results") or [])
@@ -398,18 +407,53 @@ def _qa_answer(question: str, results) -> str:
                 "- 联系合规部门或资深审核确认该类目要求；\n"
                 "- 由管理员在「规则知识库」补充对应制度文档后我再依据条文回答。")
 
-    lines = ["依据检索到的审核规则条文：", ""]
-    seen = 0
-    for s in snippets[:3]:
-        text = (s.get("content") or "").replace("\n", " ").strip()
-        lines.append(f"- 《{s.get('file')}》片段#{s.get('chunk_index', 0) + 1}：{text[:90]}…")
-        seen += 1
-    if reqs:
-        lines += ["", "该类目需提交的资质：" + "、".join(reqs) + "。"]
-    if not seen and not reqs:
+    lines = []
+
+    # ---- 第一级：材料缺口能直接算出来就先给结论 ----
+    provided = _materials(question)
+    if reqs and provided:
+        missing = [r for r in reqs if r not in provided]
+        lines.append(f"结论：按「{category or '该'}类目」要求需提交：{'、'.join(reqs)}。")
+        lines.append(f"你已提供：{'、'.join(provided)}。")
+        lines.append("还缺：" + (("、".join(missing) + "。") if missing
+                                else "无，材料已齐全，可以直接提交创建草稿。"))
+        lines.append("")
+
+    # ---- 第二级：从条文里抽「包含问题关键词的句子」作依据 ----
+    # 每个片段按「关键词命中数」排序取前 2 句（保留原文顺序），
+    # 既保证最相关的条文露出，又不至于把整段贴出来刷屏。
+    from ..knowledge import content_words
+    kws = [w.lower() for w in content_words(question)]
+    picked, seen_files = [], set()
+    for s in snippets[:4]:
+        text = (s.get("content") or "").strip()
+        file_tag = f"《{s.get('file')}》片段#{s.get('chunk_index', 0) + 1}"
+        scored = []
+        for sent in re.split(r"[。！？\n]+", text):
+            sent = sent.strip()
+            low = sent.lower()
+            if len(sent) < 8:
+                continue
+            hits = sum(1 for k in kws if k in low)
+            if hits:
+                scored.append((hits, sent))
+        scored.sort(key=lambda x: -x[0])          # 命中多的排前面
+        best = sorted((s2 for _, s2 in scored[:2]), key=lambda x: text.find(x[:12]))
+        for sent in best:
+            picked.append(f"- {file_tag}：{sent[:110]}{'…' if len(sent) > 110 else ''}")
+        seen_files.add(s.get("file"))
+
+    if lines and picked:
+        lines.append("依据的条文：")
+        lines += picked
+    elif picked:
+        lines.append("依据检索到的审核规则条文：")
+        lines += picked
+        # 只有"既算不出缺口、类目又不明"且依据很少时才请用户补充
+        if not reqs and not provided and len(picked) < 2:
+            lines += ["", "如需我逐项核对你手上的材料，请告诉我商品类目和已有证件。"]
+    elif not lines:
         return "规则中未找到相关条文。"
-    if not reqs:
-        lines += ["", "如需我核对具体资质清单，请告诉我商品类目。"]
     return "\n".join(lines)
 
 
