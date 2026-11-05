@@ -7,6 +7,7 @@
 """
 import hashlib
 import json
+import re
 import time
 
 from .errors import ApiError
@@ -121,6 +122,84 @@ def request_missing_material(session_id: str, items: list):
             "missing": items}
 
 
+# ---------------- 属性冲突预检（调查报告 REQ-1） ----------------
+# 维度词表：单位 -> 业务维度名。跨字段比对时同一维度出现不同值即冲突。
+_UNIT_DIMS = [
+    (r"(\d+(?:\.\d+)?)\s*(?:v|伏)(?![a-z])", "电压"),
+    (r"(\d+(?:\.\d+)?)\s*(?:w|瓦)(?![a-z])", "功率"),
+    (r"(\d+(?:\.\d+)?)\s*(?:ml|毫升)(?![a-z])", "容量"),
+    (r"(\d+(?:\.\d+)?)\s*(?:mah)(?![a-z])", "电池容量"),
+    (r"(\d+(?:\.\d+)?)\s*(?:kg|千克|公斤)(?![a-z])", "重量"),
+    (r"(\d+(?:\.\d+)?)\s*(?:cm|厘米)(?![a-z])", "尺寸"),
+]
+
+
+def attribute_conflict_check(session_id: str, payload: dict):
+    """属性冲突预检：跨资料比对同一维度的数值（如规格 220V vs 图片 110V）。
+
+    合规红线（报告 REQ-1）：只做只读提示，不自动处置、不替审核员下结论——
+    发现冲突即标记「需人工核对」，由 escalate_manual 升级到人工处置队列。
+    """
+    fields = {k: (payload.get(k) or "") for k in ("title", "description")}
+    found = {}          # 维度 -> {字段: [值]}
+    for fname, text in fields.items():
+        low = str(text).lower()
+        for pat, dim in _UNIT_DIMS:
+            for m in re.finditer(pat, low):
+                val = m.group(1)
+                found.setdefault(dim, {}).setdefault(fname, [])
+                if val not in found[dim][fname]:
+                    found[dim][fname].append(val)
+
+    conflicts = []
+    for dim, per_field in found.items():
+        values = sorted({v for vs in per_field.values() for v in vs})
+        if len(values) > 1:                      # 同一维度出现两个不同值 → 冲突
+            where = "；".join(
+                f"{fname}字段：{'、'.join(vs)}{dim}"
+                for fname, vs in per_field.items() if vs)
+            conflicts.append({
+                "dimension": dim,
+                "values": values,
+                "where": where,
+                "advice": "两处数值不一致，需商家确认后修改，AI 不代为判断哪边正确",
+            })
+    return {"tool": "attribute_conflict_check",
+            "passed": not conflicts,
+            "conflicts": conflicts,
+            "checked_fields": [f for f, t in fields.items() if t]}
+
+
+def escalate_manual(session_id: str, biz_ref: str, reason: str,
+                    category: str = "", conflict_detail: str = "",
+                    handler_role: str = "内容审核员"):
+    """转人工兜底（报告 REQ-3）：把 AI 提示升级到人工处置队列。
+
+    硬性要求：触发原因、接手人、（确认后回填的）确认时间缺一不可，
+    不能只给一句模糊提醒。写入 manual_tasks 表，供后台 /admin/tasks 处置。
+    """
+    import time as _t
+    from .db import SessionLocal, ManualTask
+    db = SessionLocal()
+    try:
+        task_no = "MT" + str(int(_t.time() * 1000))[-10:]
+        db.add(ManualTask(
+            task_no=task_no,
+            biz_ref=(biz_ref or session_id)[:110],
+            category=(category or "")[:30],
+            trigger_reason=(reason or "未注明")[:490],
+            conflict_detail=(conflict_detail or "")[:490],
+            handler_role=handler_role or "内容审核员",
+            status="待处理",
+        ))
+        db.commit()
+        return {"tool": "escalate_manual", "task_no": task_no,
+                "handler_role": handler_role, "status": "待处理",
+                "trigger_reason": reason}
+    finally:
+        db.close()
+
+
 def get_precheck_state(session_id: str) -> dict:
     """【编排层专用】读取当前会话的预检状态。
 
@@ -182,6 +261,21 @@ TOOL_SCHEMAS = [
                     "required": ["session_id", "items"],
                     "properties": {"session_id": {"type": "string"},
                                    "items": {"type": "array", "items": {"type": "string"}}}}},
+    {"name": "attribute_conflict_check",
+     "description": "属性冲突预检（只读）：跨字段比对同维度数值（电压/功率/容量等），"
+                    "发现不一致只提示、不处置。create_goods_draft 之前必须先执行。",
+     "parameters": {"type": "object", "additionalProperties": False,
+                    "required": ["session_id", "payload"],
+                    "properties": {"session_id": {"type": "string"}, "payload": {"type": "object"}}}},
+    {"name": "escalate_manual",
+     "description": "转人工兜底：冲突预检发现问题或缺依据时升级到人工处置队列，"
+                    "必须写明触发原因。发现属性冲突后禁止调用 create_goods_draft。",
+     "parameters": {"type": "object", "additionalProperties": False,
+                    "required": ["session_id", "biz_ref", "reason"],
+                    "properties": {"session_id": {"type": "string"}, "biz_ref": {"type": "string"},
+                                   "reason": {"type": "string"}, "category": {"type": "string"},
+                                   "conflict_detail": {"type": "string"},
+                                   "handler_role": {"type": "string"}}}},
 ]
 
 DISPATCH = {
@@ -192,4 +286,6 @@ DISPATCH = {
     "compliance_check": compliance_check,
     "create_goods_draft": create_goods_draft,
     "request_missing_material": request_missing_material,
+    "attribute_conflict_check": attribute_conflict_check,
+    "escalate_manual": escalate_manual,
 }

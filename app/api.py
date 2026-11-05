@@ -83,6 +83,9 @@ def health():
         "sse": conn_snapshot(),
         "rate_keys": rate_snapshot()["keys"],
         "llm_today": usage_today(),
+        # 知识快照状态（需求报告 REQ-5）：带时间戳，超过刷新周期标 stale，
+        # 提示「暂未更新」而不是冒充实时
+        "knowledge_snapshot": index_state.snapshot_status(),
     }
 
 
@@ -602,6 +605,121 @@ def agent_run_steps(run_id: str, db: Session = Depends(get_db),
 
 
 # ===================== 运营观测（用量 / 安全事件） =====================
+
+
+# ===================== 人工处置队列（需求报告 REQ-2/REQ-3） =====================
+@router.get("/api/admin/tasks")
+def manual_tasks(status: str = "", limit: int = 100,
+                 db: Session = Depends(get_db),
+                 user=Depends(require_role("reviewer", "admin"))):
+    """人工处置队列：属性冲突预检等 AI 提示的升级工单。
+
+    每条含触发原因、接手人、确认时间——报告明确"不能只给模糊提醒"。
+    """
+    from .db import ManualTask
+    from .guard import mask_text
+    q = db.query(ManualTask)
+    if status:
+        q = q.filter(ManualTask.status == status)
+    rows = q.order_by(ManualTask.id.desc()).limit(min(limit, 500)).all()
+    return [{
+        "id": r.id, "task_no": r.task_no, "biz_ref": r.biz_ref,
+        "category": r.category,
+        "trigger_reason": r.trigger_reason,
+        "conflict_detail": r.conflict_detail,
+        "handler_role": r.handler_role, "status": r.status,
+        "handler_note": r.handler_note,
+        "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "confirmed_at": r.confirmed_at.strftime("%Y-%m-%d %H:%M:%S") if r.confirmed_at else None,
+    } for r in rows]
+
+
+class TaskConfirmIn(BaseModel):
+    note: str = ""
+
+
+@router.post("/api/admin/tasks/{task_id}/confirm")
+def confirm_task(task_id: int, body: TaskConfirmIn,
+                 db: Session = Depends(get_db),
+                 user=Depends(require_role("reviewer", "admin"))):
+    """审核岗确认处置：回填确认时间与处理说明，闭环留痕（REQ-3 硬要求）。"""
+    from datetime import datetime as _dt
+    from .db import ManualTask
+    row = db.get(ManualTask, task_id)
+    if not row:
+        raise ApiError("40401", "工单不存在", 404)
+    if row.status != "待处理":
+        raise ApiError("40901", "工单已确认过，不能重复确认", 409)
+    row.status = "已确认"
+    row.confirmed_at = _dt.utcnow()
+    row.handler_note = (body.note or "")[:490]
+    db.commit()
+    return {"id": row.id, "task_no": row.task_no, "status": row.status,
+            "confirmed_at": row.confirmed_at.strftime("%Y-%m-%d %H:%M:%S")}
+
+
+# ===================== 验收指标口径（需求报告 REQ-6） =====================
+@router.get("/api/admin/metrics")
+def admin_metrics(db: Session = Depends(get_db),
+                  user=Depends(require_role("admin", "reviewer"))):
+    """试点验收指标（固定分母 + 口径说明，避免"同一业务拆多次成功"式虚高）。
+
+    每个指标都带 denominator / exclusion 说明——这是 REQ-6 的硬要求：
+    没有口径的数字不能用于验收。
+    """
+    import json as _json
+    from .db import AgentRun, AgentConfirmation, ManualTask
+
+    runs_total = db.query(AgentRun).count()
+    runs_done = db.query(AgentRun).filter(AgentRun.status == "done").count()
+    runs_failed = db.query(AgentRun).filter(AgentRun.status == "failed").count()
+    confirms = db.query(AgentConfirmation).count()
+    confirms_approved = db.query(AgentConfirmation).filter(
+        AgentConfirmation.status == "confirmed").count()
+    tasks_open = db.query(ManualTask).filter(ManualTask.status == "待处理").count()
+    tasks_closed = db.query(ManualTask).filter(ManualTask.status == "已确认").count()
+
+    # 分岗平均耗时：按工具统计 elapsed_ms（数据源 agent_steps，逐笔采集而非通知数）
+    from .db import AgentStep
+    step_rows = db.query(AgentStep.tool_name, AgentStep.elapsed_ms).all()
+    per_tool = {}
+    for tool, ms in step_rows:
+        if ms is None:
+            continue
+        per_tool.setdefault(tool, []).append(ms)
+    latency = {t: {"p50_ms": sorted(v)[len(v) // 2], "avg_ms": round(sum(v) / len(v)),
+                   "n": len(v)} for t, v in per_tool.items()}
+
+    def rate(a, b):
+        return round(a / b * 100, 1) if b else None
+
+    return {
+        "denominators": {
+            "agent_runs": "分母=全部 Agent 执行（agent_runs 全表，不做排除）；"
+                          "失败/中断计入分母，不剔除",
+            "confirmations": "分母=弹出的全部确认单（含拒绝）；一次流程只签发一张确认单，"
+                             "同一业务重复提交按新运行计",
+            "manual_tasks": "分母=入队全部工单（含待处理）",
+        },
+        "exclusions": {
+            "note": "排除规则：无。当前口径不排除任何失败样本——"
+                    "失败率本身就是验收观察项，剔除会抬高比例（REQ-6 红线）",
+        },
+        "agent": {
+            "runs_total": runs_total, "runs_done": runs_done,
+            "runs_failed": runs_failed,
+            "completion_rate_pct": rate(runs_done, runs_total),
+        },
+        "confirmation": {
+            "issued": confirms, "approved": confirms_approved,
+            "approve_rate_pct": rate(confirms_approved, confirms),
+        },
+        "drafts_created": confirms_approved,  # 确认通过的草稿数（分母=全部确认单）
+        "manual_queue": {"open": tasks_open, "closed": tasks_closed},
+        "stage_latency": latency,
+    }
+
+
 @router.get("/api/admin/usage")
 def admin_usage(user=Depends(require_role("admin"))):
     """当日模型用量、限流键规模与关键阈值（上线后每天的巡检入口）。"""

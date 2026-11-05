@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>人工处置队列</h2>
+  <p class="desc">
+    属性冲突预检等 AI 提示升级到这里（AI 只提示、不处置、不替审核员下结论）。
+    每条工单都写明<b>触发原因</b>与<b>接手人</b>，处理后回填<b>确认时间</b>——
+    对应需求发现报告 REQ-2 / REQ-3：不能只给一句模糊提醒。
+  </p>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>工单号</th><th>商品/引用</th><th>类目</th><th>触发原因（冲突明细）</th>
+        <th>接手人</th><th>状态</th><th>创建时间</th><th>确认时间</th><th style="width:80px;">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tasks %}
+      <tr>
+        <td class="mono">{{ t.task_no }}</td>
+        <td title="{{ t.biz_ref }}">{{ t.biz_ref[:24] }}{% if t.biz_ref|length > 24 %}…{% endif %}</td>
+        <td>{{ t.category or '—' }}</td>
+        <td title="{{ t.trigger_reason }}｜{{ t.conflict_detail }}">
+          {{ t.trigger_reason[:56] }}{% if t.trigger_reason|length > 56 %}…{% endif %}
+        </td>
+        <td>{{ t.handler_role }}</td>
+        <td>
+          {% if t.status == '待处理' %}<span class="tag warn">待处理</span>
+          {% else %}<span class="tag ok">已确认</span>{% endif %}
+        </td>
+        <td class="mono">{{ t.created_at.strftime('%m-%d %H:%M') }}</td>
+        <td class="mono">{{ t.confirmed_at.strftime('%m-%d %H:%M') if t.confirmed_at else '—' }}</td>
+        <td>
+          {% if t.status == '待处理' %}
+          <button class="btn sm primary" onclick="confirmTask({{ t.id }})">确认已处置</button>
+          {% else %}<span class="tag gray">闭环</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" style="text-align:center;color:#999;">暂无工单——属性冲突预检发现问题时会自动入队</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+async function confirmTask(id) {
+  var note = prompt('处理说明（将记入工单，可留空）：') || '';
+  var resp = await fetch('/api/admin/tasks/' + id + '/confirm', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({note: note})
+  });
+  if (resp.ok) { location.reload(); }
+  else { alert('确认失败：' + resp.status); }
+}
+</script>
+{% endblock %}

@@ -250,11 +250,25 @@ class IndexState:
         self.bm25 = None
         self.index = None
         self.dim = settings.EMB_DIM
+        self.built_at = 0.0   # 快照时间戳（需求报告 REQ-5：超周期须显式标"待刷新"）
+
+    def snapshot_status(self) -> dict:
+        """知识快照状态：带时间戳、可判断是否超过刷新周期（15 分钟）。"""
+        import time as _t
+        age = (_t.time() - self.built_at) if self.built_at else None
+        return {
+            "chunks": len(self.chunks),
+            "built_at": self.built_at,
+            "age_seconds": round(age, 1) if age is not None else None,
+            "stale": bool(age is not None and age > 900),   # 超过 15 分钟未刷新
+        }
 
     def build(self, db):
         """从数据库重建 BM25 与 FAISS 索引（上传/删除后调用）。"""
+        import time as _t
         from .db import KnowledgeChunk, RuleDoc
         with self.lock:
+            self.built_at = _t.time()   # 每次重建都刷新快照时间戳
             rows = db.query(KnowledgeChunk).order_by(KnowledgeChunk.id.asc()).all()
             docs = {d.id: d for d in db.query(RuleDoc).all()}
             chunks, vecs = [], []

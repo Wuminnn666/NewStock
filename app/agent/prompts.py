@@ -25,6 +25,11 @@ FLOW_RULES = """【工具调用顺序（硬约束，服务端会拒绝违规调�
    你只需发起调用，不要试图用文字代替确认，也不要在同一轮里伪造 precheck_token。
 6. 任一校验 passed=false 且属于「缺资料/缺资质」时，调用 request_missing_material
    列出待补清单，然后停下等待用户补充，不要自行猜测或编造资料。
+7. compliance_check 通过后、create_goods_draft 之前，必须调用 attribute_conflict_check
+   做属性冲突预检（比对标题/描述里同维度数值，如电压 220V vs 110V）。
+8. attribute_conflict_check 返回 conflicts 非空时：禁止调用 create_goods_draft，
+   必须调用 escalate_manual 转人工处置队列（写明触发原因），并告知用户工单号。
+   AI 只做提示，不判断哪边数值正确、不替审核员下结论。
 """
 
 # 行为红线：防止模型「自我认证」和「跳过校验」

@@ -323,6 +323,9 @@ def _plan(question: str, session_id: str, history: str = ""):
         ToolCall("material_validate", {"session_id": session_id, "payload": payload}),
         ToolCall("qualification_audit", {"session_id": session_id, "payload": payload}),
         ToolCall("compliance_check", {"session_id": session_id, "payload": payload}),
+        # 属性冲突预检（报告 REQ-1）：三项校验通过 ≠ 资料内部一致，
+        # 规格表 220V / 图片 110V 这类冲突必须在建草稿前暴露
+        ToolCall("attribute_conflict_check", {"session_id": session_id, "payload": payload}),
     ]
 
     if intent == "validate":
@@ -378,6 +381,18 @@ def _missing_answer(last: dict) -> str:
     lines += [f"- {i}" for i in items] or ["- （未返回明细）"]
     lines += ["", "补齐后把材料名称发给我，我会重新走「资料 → 资质 → 合规」三项校验。"]
     return "\n".join(lines)
+
+
+def _escalated_answer(last: dict) -> str:
+    """转人工收尾：AI 只提示不处置（报告 REQ-1 红线），把冲突交给人工签核。"""
+    reason = (last.get("trigger_reason") or "").replace("属性冲突预检未通过：", "")
+    return (
+        "结论：**属性冲突预检未通过，本次不创建草稿**。\n\n"
+        f"冲突明细：{reason}\n\n"
+        f"已转人工处置队列，工单号 **{last.get('task_no')}**，接手人：{last.get('handler_role')}。\n"
+        "按规范，AI 只做提示、不代为判断哪边数值正确、也不替审核员下结论。\n\n"
+        "建议：请先与商家确认正确的数值（如规格表与图片不一致时以哪份为准），"
+        "修改后把新的商品描述发我，我会重新走全部校验。")
 
 
 def _qa_answer(question: str, results) -> str:
@@ -508,6 +523,23 @@ class HeuristicDecider:
 
         # 4) 上一轮失败 → 索要资料 / 给结论
         if last.get("passed") is False:
+
+            # 4.0) 属性冲突预检失败（REQ-1/REQ-3）：只提示不处置，
+            #      立即转人工处置队列（写清触发原因+接手人），禁止建草稿
+            if last.get("tool") == "attribute_conflict_check" and last.get("conflicts"):
+                detail = "；".join(
+                    f"{c.get('dimension')}{'/'.join(c.get('values') or [])}（{c.get('where')}）"
+                    for c in last["conflicts"])
+                biz = _payload(question, _category(question, history), history).get("title") or question
+                return Decision("tool", [ToolCall("escalate_manual", {
+                    "session_id": session_id,
+                    "biz_ref": biz,
+                    "reason": "属性冲突预检未通过：" + detail,
+                    "category": _category(question, history),
+                    "conflict_detail": detail,
+                    "handler_role": "内容审核员",
+                })])
+
             issues = last.get("issues") or []
             need = [i for i in issues
                     if i.startswith("缺少资质") or i.startswith("缺少字段") or "未上传" in i]
@@ -520,6 +552,10 @@ class HeuristicDecider:
         # 5) 刚生成完待补清单 → 收尾等用户补充
         if last.get("tool") == "request_missing_material":
             return Decision("final", content=_guard(_missing_answer(last), question))
+
+        # 5.1) 刚转人工 → 给出带工单号的收尾（触发原因/接手人都在单上）
+        if last.get("tool") == "escalate_manual":
+            return Decision("final", content=_guard(_escalated_answer(last), question))
 
         # 5.5) 被服务端门禁拦下（模型越序调 create_goods_draft）
         #      这时不能假装成功，要如实告诉用户「被拦了、还差什么」。
@@ -554,10 +590,12 @@ class HeuristicDecider:
                 "本次没有做资质与合规判断（按你的要求）；需要我继续往下核验时告诉我。",
                 question))
 
-        if intent in ("validate", "submit") and last.get("tool") == "compliance_check" and last.get("passed"):
+        # 校验链的最后一步现在是冲突预检：三项校验 + 冲突预检全过才算全通过
+        if (intent in ("validate", "submit")
+                and last.get("tool") == "attribute_conflict_check" and last.get("passed")):
             return Decision("final", content=_guard(
-                "结论：**三项校验全部通过**——资料完整、资质齐备、未发现违规用语，"
-                "可以进入上架流程。", question))
+                "结论：**三项校验全部通过，属性冲突预检未发现问题**——"
+                "资料完整、资质齐备、未发现违规用语，可以进入上架流程。", question))
 
         return Decision("final", content=_guard(
             _qa_answer(question, results) if done else _summary(results), question))

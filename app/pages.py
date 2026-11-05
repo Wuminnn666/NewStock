@@ -119,6 +119,22 @@ def agent_page(request: Request, db: Session = Depends(get_db)):
                                       _ctx(request, user, "agent", "执行轨迹", runs=runs))
 
 
+@router.get("/admin/tasks")
+def tasks_page(request: Request, db: Session = Depends(get_db)):
+    """人工处置队列：AI 冲突提示的升级入口（需求报告 REQ-2/REQ-3）。"""
+    from .db import ManualTask
+
+    user = _page_user(request, db)
+    if not user:
+        return RedirectResponse("/login")
+    if user.role not in ("reviewer", "admin"):
+        return RedirectResponse("/403")
+    tasks = (db.query(ManualTask).order_by(ManualTask.id.desc())
+             .limit(200).all())
+    return templates.TemplateResponse(request, "tasks.html",
+                                      _ctx(request, user, "tasks", "人工处置队列", tasks=tasks))
+
+
 @router.get("/403")
 def forbidden(request: Request, db: Session = Depends(get_db)):
     user = _page_user(request, db)

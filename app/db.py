@@ -199,6 +199,27 @@ class SecurityEvent(Base):
     created_at = Column(DateTime, default=now, index=True)
 
 
+class ManualTask(Base):
+    """人工处置队列（调查报告 REQ-2/REQ-3）。
+
+    AI 只做提示不做处置：冲突预检发现问题后升级到这里，
+    每条记录必须写清「触发原因、接手人、确认时间」——报告明确
+    "不能只给一句模糊提醒"，所以这三列是硬字段，不许空。
+    """
+    __tablename__ = "manual_tasks"
+    id = Column(Integer, primary_key=True)
+    task_no = Column(String(24), index=True, unique=True)          # MT-xxxx
+    biz_ref = Column(String(120))                                   # 商品/草稿/会话引用
+    category = Column(String(32))                                   # 商品类目
+    trigger_reason = Column(String(500))                            # 触发原因（必填）
+    conflict_detail = Column(String(500))                           # 冲突明细（字段位置+数值）
+    handler_role = Column(String(32), default="内容审核员")          # 接手人（角色）
+    status = Column(String(16), default="待处理", index=True)       # 待处理/已确认
+    handler_note = Column(String(500))                              # 处理说明
+    created_at = Column(DateTime, default=now, index=True)
+    confirmed_at = Column(DateTime)                                 # 确认时间（状态变更时回填）
+
+
 def init_db():
     Base.metadata.create_all(engine)
 
