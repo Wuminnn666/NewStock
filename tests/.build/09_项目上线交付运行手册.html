@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>项目上线交付运行手册</title>
+<style>
+@page { size: A4; margin: 2.2cm 2.0cm; }
+body { font-family: "Microsoft YaHei","PingFang SC",serif; font-size: 10.5pt;
+       line-height: 1.75; color: #1f2d3d; }
+.cover { text-align: center; padding-top: 180px; page-break-after: always; }
+.cover .kicker { font-size: 11pt; color: #5b7fd4; letter-spacing: 2px; }
+.cover h1 { font-size: 26pt; margin: 18px 0 10px; color: #14243a; }
+.cover .sub { font-size: 11.5pt; color: #5d6f82; margin-top: 6px; }
+.cover .meta { margin-top: 60px; font-size: 10pt; color: #7b8a99; }
+h1 { font-size: 19pt; color: #14243a; border-bottom: 2.5px solid #5b7fd4;
+     padding-bottom: 6px; margin: 26px 0 12px; page-break-after: avoid; }
+h2 { font-size: 15pt; color: #1d3f6e; margin: 22px 0 10px; page-break-after: avoid; }
+h3 { font-size: 12.5pt; color: #23496f; margin: 16px 0 8px; page-break-after: avoid; }
+p { margin: 6px 0; text-align: justify; }
+ul, ol { margin: 6px 0 6px 22px; }
+li { margin: 3px 0; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0 14px;
+        font-size: 9.5pt; page-break-inside: avoid; }
+th { background: #eaf0fd; color: #1d3f6e; font-weight: 600; text-align: left; }
+th, td { border: 1px solid #c9d6e4; padding: 6px 8px; vertical-align: top; }
+tr:nth-child(even) td { background: #fafcff; }
+blockquote { margin: 10px 0; padding: 8px 12px; background: #f4f7fb;
+             border-left: 4px solid #5b7fd4; color: #44576b; font-size: 10pt; }
+pre { background: #f6f8fa; border: 1px solid #dde5ee; padding: 10px; font-size: 9pt;
+      font-family: Consolas,monospace; white-space: pre-wrap; }
+code { font-family: Consolas,monospace; background: #eef2f7; padding: 1px 3px; font-size: 9.5pt; }
+strong { color: #14243a; }
+hr { border: none; border-top: 1px solid #dde5ee; margin: 16px 0; }
+.note { background: #fff8e6; border: 1px solid #e8d199; padding: 10px 12px; margin: 10px 0; }
+</style></head><body>
+<div class="cover">
+  <div class="kicker">交付物 09 · 运行手册</div>
+  <h1>项目上线交付运行手册</h1>
+  <div class="sub">部署步骤 / 角色权限 / 关键 API / 日常运行 / 备份恢复 / 故障处置</div>
+  <div class="meta">版本 v1.1 · 2026-11-06</div>
+</div>
+<blockquote>项目：万象商家中心 · 商品详情里的自相矛盾 → 商品上架与资料审核系统（MVP）<br/>版本：v1.1 · 2026-11-06 · 适用范围：上线交付、日常运行、备份恢复与故障处置</blockquote>
+<h2>一、交付内容与访问入口</h2>
+<table>
+<tr><th>项目</th><th>说明</th></tr>
+<tr><td>线上部署地址</td><td>https://product-audit-assistant.app.workbuddy.host/?sharecode=MYYH2Y2KY5</td></tr>
+<tr><td>本地开发地址</td><td>http://127.0.0.1:8000（<code>python run.py</code> 启动）</td></tr>
+<tr><td>健康检查</td><td><code>GET /api/health</code>（含 SSE 水位、限流键数、知识库快照状态）</td></tr>
+<tr><td>演示账号</td><td>submitter（提交方）/ reviewer（审核员）/ admin（管理员），初始密码均为 <code>123456</code></td></tr>
+<tr><td>源码仓库</td><td>https://github.com/Wuminnn666/NewStock</td></tr>
+</table>
+<blockquote>安全提示：<code>123456</code> 仅为演示初始密码，正式启用前必须在「管理员 → 用户管理」改密，并替换 <code>SECRET_KEY</code> 环境变量（≥32 字符随机串）。</blockquote>
+<h2>二、首次部署步骤</h2>
+<ol>
+<li>拉取源码：<code>git clone https://github.com/Wuminnn/NewStock.git</code>（或下载压缩包解压）。</li>
+<li>安装依赖：<code>pip install -r requirements.txt</code>（Python ≥ 3.10）。</li>
+<li>配置环境变量（可选）：</li>
+</ol>
+<ul>
+<li><code>PORT</code>：监听端口，缺省 8000；设置后自动绑定 <code>0.0.0.0</code>；</li>
+<li><code>SECRET_KEY</code>：JWT 签名密钥，生产必须 ≥32 字符；</li>
+<li><code>ENV=prod</code>：启用生产安全自检（默认密钥会拒绝启动）。</li>
+</ul>
+<ol>
+<li>启动：<code>python run.py</code>。首次启动自动完成：建表（16 张）、创建三个角色账号、导入《审核制度.md》示例知识库并构建检索索引。</li>
+<li>验证：浏览器打开登录页，用 admin 登录，进入「管理后台 → 系统健康」确认快照状态 <code>stale=false</code>。</li>
+</ol>
+<h2>三、页面与角色权限</h2>
+<table>
+<tr><th>页面</th><th>路径</th><th>可见角色</th><th>用途</th></tr>
+<tr><td>登录</td><td><code>/login</code></td><td>所有人</td><td>JWT 登录</td></tr>
+<tr><td>问答工作台</td><td><code>/chat</code></td><td>全部</td><td>问答助手、材料核对、Agent 任务</td></tr>
+<tr><td>待办工单</td><td><code>/tasks</code></td><td>reviewer/admin</td><td>退回工单处理与确认</td></tr>
+<tr><td>审计留痕</td><td><code>/admin/audit</code></td><td>admin</td><td>会话与消息审计、标记</td></tr>
+<tr><td>Agent 运行记录</td><td><code>/admin/agent</code></td><td>admin</td><td>每轮工具调用、确认单、签核状态</td></tr>
+<tr><td>人工处置队列</td><td><code>/admin/tasks</code></td><td>admin</td><td>转人工工单闭环确认</td></tr>
+<tr><td>知识库与提示词</td><td><code>/admin/rules</code></td><td>admin</td><td>制度上传、分片查看、提示词激活</td></tr>
+</table>
+<h2>四、关键 API（管理员运维用）</h2>
+<table>
+<tr><th>接口</th><th>方法</th><th>说明</th></tr>
+<tr><td><code>/api/health</code></td><td>GET</td><td>健康检查：SSE 活跃/峰值/拒绝数、限流键、LLM 用量、知识快照</td></tr>
+<tr><td><code>/api/admin/metrics</code></td><td>GET</td><td>运行指标：固定分母口径说明、分工具 p50 延迟</td></tr>
+<tr><td><code>/api/admin/usage</code></td><td>GET</td><td>用量统计</td></tr>
+<tr><td><code>/api/admin/security-events</code></td><td>GET</td><td>安全事件（注入拦截、越权尝试、限流命中）</td></tr>
+<tr><td><code>/api/admin/tasks/{id}/confirm</code></td><td>POST</td><td>人工工单闭环确认（handler/confirm_note 必填）</td></tr>
+<tr><td><code>/api/agent/confirm</code></td><td>POST</td><td>Agent 高危动作二次确认</td></tr>
+</table>
+<h2>五、日常运行</h2>
+<ul>
+<li><strong>每日开机</strong>：确认进程存活后访问 <code>/api/health</code>，若 <code>knowledge_snapshot.stale=true</code>，说明制度文件晚于索引构建，进入管理后台上传或重建索引。</li>
+<li><strong>人工处置队列</strong>：Agent 遇到冲突或低置信度会转人工（工单含 task_no/reason/handler），管理员当日确认闭环，备注处置结论。</li>
+<li><strong>审计抽查</strong>：每日抽 3 条会话核对「回答是否挂靠制度条文」，发现未挂靠的用 flag 标记。</li>
+<li><strong>指标巡检</strong>：每周看一次 <code>/api/admin/metrics</code>，重点盯冲突拦截率（目标 ≥97%）与误报申诉率。</li>
+</ul>
+<h2>六、备份与恢复</h2>
+<ul>
+<li><strong>数据备份</strong>：<code>python scripts/backup.py</code>（SQLite 主库 + WAL 快照打包到 <code>backups/</code>，保留最近 N 份）。</li>
+<li><strong>定时备份</strong>：<code>python scripts/install_schedule.py</code> 注册每日计划任务（Windows 计划任务 / crontab 等价）。</li>
+<li><strong>恢复步骤</strong>：停进程 → 用备份包覆盖 <code>data/</code> 下的库文件 → 重启 → 访问 <code>/api/health</code> 校验 → 抽查一条历史会话可打开。</li>
+<li><strong>保留策略</strong>：<code>scripts/retention.py</code> 清理过期备份与超期审计数据，建议保留 30 天。</li>
+</ul>
+<h2>七、故障处置速查</h2>
+<table>
+<tr><th>现象</th><th>排查</th><th>处置</th></tr>
+<tr><td>登录 401/403</td><td>账号是否被停用、JWT 是否过期</td><td>重新登录；admin 重置密码</td></tr>
+<tr><td>问答报「未找到依据」</td><td>知识快照是否 stale</td><td>重建索引（管理后台上传制度）</td></tr>
+<tr><td>SSE 无响应</td><td><code>/api/health</code> 的 sse.active 是否触顶</td><td>等待释放；必要时重启进程（幂等工单会恢复）</td></tr>
+<tr><td>接口 429</td><td>触发限流/配额</td><td>查看 security-events 确认来源，属正常防护</td></tr>
+<tr><td>Agent 卡在确认</td><td>确认单待签核</td><td><code>/admin/agent</code> 里由授权人签核或中断</td></tr>
+<tr><td>数据库锁定</td><td>WAL 文件异常</td><td>备份后重启；避免多进程同时写</td></tr>
+</table>
+<h2>八、上线验收核对（交付时逐项打勾）</h2>
+<ul>
+<li>[x] <code>/api/health</code> 返回 <code>status=ok</code> 且 <code>degraded=false</code></li>
+<li>[x] 三个演示账号可登录，RBAC 越权访问被拒</li>
+<li>[x] 220V/110V 冲突问句被拦截并转人工，工单可在后台闭环</li>
+<li>[x] 评测 <code>eval_runner.py</code> 30/30 通过；彩排 <code>demo_rehearsal.py</code> 9/9 通过</li>
+<li>[x] 备份脚本执行成功且可恢复</li>
+<li>[x] 注入问句被识别并拒绝，安全事件留痕</li>
+</ul>
+<h2>九、已知边界（如实说明）</h2>
+<ul>
+<li>MVP 为离线演示口径：问答依据全部来自本地知识库检索，不调用外部大模型；<code>llm_today</code> 指标在接入真实 LLM 后生效。</li>
+<li>合成训练数据不代表真实客户验收；收益数字均为待验证假设。</li>
+<li>单机 SQLite 部署适用于试点（≤50 并发）；规模化需迁移 PostgreSQL 并加只读副本，见《07_详细项目设计方案》部署章节。</li>
+</ul>
+</body></html>
