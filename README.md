@@ -2,6 +2,21 @@
 
 基于 **FastAPI + SQLite + FAISS** 的商品上架资料审核系统，含：提交方咨询（SSE 流式问答 + RAG 引用）、规则知识库管理、提示词模板管理、对话审计，以及带服务端门禁的 Agent 工具层。
 
+## 线上演示
+
+已部署 MVP（评审可直接访问，账号同下）：https://product-audit-assistant.app.workbuddy.host/?sharecode=MYYH2Y2KY5
+
+## 交付物导航（评审动线）
+
+| 交付板块 | 位置 |
+|---|---|
+| 9 项交付物总览（01~09 对照表） | `docs/deliverables/00_交付物清单.md` |
+| ①六人访谈 ②简报 ③典型事件 ④行业分析 ⑤双流程图 ⑥需求定义 ⑦详细设计 ⑧报价 ⑨运行手册 | `docs/deliverables/` 下对应编号目录/文件 |
+| src：问答助手归档 + MVP（架构/Agent 框架/知识库/4 处人工确认点） | `src/README_问答助手归档.md` |
+| Test：测试方案（5 类场景 39 条，实测 100%） | `tests/测试方案.md`（附 docx） |
+| Test：5 份场景测试过程（有图有过程，网页可直接看） | `tests/02_场景测试过程/preview/` |
+| Test：MVP 上线部署地址文档 | `tests/MVP上线部署地址.md` |
+
 ## 快速开始
 
 ```bash
@@ -43,7 +58,9 @@ NewStock/
 ├── 审核制度.md               # 示例知识库（首次启动自动导入）
 ├── product_review_stage1.py  # 阶段1 离线原型（保留）
 ├── agent_demo.py             # Agent 编排命令行演练（4 条典型场景）
-├── docs/                     # 编排设计说明 + 三条典型轨迹
+├── src/                      # 问答助手归档 + MVP 说明（架构/人工确认点）
+├── tests/                    # 测试方案、5 份场景测试文档、上线部署地址
+├── docs/                     # 编排设计说明 + 交付物（deliverables/）
 └── app/
     ├── main.py               # FastAPI 装配、异常处理、启动初始化
     ├── config.py             # 全部配置（环境变量可覆盖）
