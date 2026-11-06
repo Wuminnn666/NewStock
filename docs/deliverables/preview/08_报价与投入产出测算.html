@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>报价与投入产出测算 · 商品上架审核 AI 改造</title>
+<style>
+@page { size: A4; margin: 2.2cm 2.0cm; }
+body { font-family: "Microsoft YaHei","PingFang SC",serif; font-size: 10.5pt;
+       line-height: 1.75; color: #1f2d3d; }
+.cover { text-align: center; padding-top: 180px; page-break-after: always; }
+.cover .kicker { font-size: 11pt; color: #5b7fd4; letter-spacing: 2px; }
+.cover h1 { font-size: 26pt; margin: 18px 0 10px; color: #14243a; }
+.cover .sub { font-size: 11.5pt; color: #5d6f82; margin-top: 6px; }
+.cover .meta { margin-top: 60px; font-size: 10pt; color: #7b8a99; }
+h1 { font-size: 19pt; color: #14243a; border-bottom: 2.5px solid #5b7fd4;
+     padding-bottom: 6px; margin: 26px 0 12px; page-break-after: avoid; }
+h2 { font-size: 15pt; color: #1d3f6e; margin: 22px 0 10px; page-break-after: avoid; }
+h3 { font-size: 12.5pt; color: #23496f; margin: 16px 0 8px; page-break-after: avoid; }
+p { margin: 6px 0; text-align: justify; }
+ul, ol { margin: 6px 0 6px 22px; }
+li { margin: 3px 0; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0 14px;
+        font-size: 9.5pt; page-break-inside: avoid; }
+th { background: #eaf0fd; color: #1d3f6e; font-weight: 600; text-align: left; }
+th, td { border: 1px solid #c9d6e4; padding: 6px 8px; vertical-align: top; }
+tr:nth-child(even) td { background: #fafcff; }
+blockquote { margin: 10px 0; padding: 8px 12px; background: #f4f7fb;
+             border-left: 4px solid #5b7fd4; color: #44576b; font-size: 10pt; }
+pre { background: #f6f8fa; border: 1px solid #dde5ee; padding: 10px; font-size: 9pt;
+      font-family: Consolas,monospace; white-space: pre-wrap; }
+code { font-family: Consolas,monospace; background: #eef2f7; padding: 1px 3px; font-size: 9.5pt; }
+strong { color: #14243a; }
+hr { border: none; border-top: 1px solid #dde5ee; margin: 16px 0; }
+.note { background: #fff8e6; border: 1px solid #e8d199; padding: 10px 12px; margin: 10px 0; }
+</style></head><body>
+<div class="cover">
+  <div class="kicker">交付物 08 · 商务测算</div>
+  <h1>报价与投入产出测算 · 商品上架审核 AI 改造</h1>
+  <div class="sub">低 / 中 / 高三档报价 · 试点口径 ROI · 敏感性分析与付款节奏</div>
+  <div class="meta">版本 v1.0 · 2026-11-06</div>
+</div>
+<blockquote><strong>重要前提</strong>：本文所有收益数字建立在需求发现报告的现状口径上（每日 1800 个上架申请、初审 18 分钟、退回率 31%、跨资料核验占 60%），<br/>这些口径尚未经样本验证。<strong>报价可承诺，收益不承诺</strong>——建议先执行 M0 基线取数（1 周），再据实修正测算。</blockquote>
+<h2>一、测算基线与假设</h2>
+<table>
+<tr><th>参数</th><th>取值</th><th>来源</th><th>性质</th></tr>
+<tr><td>每日上架申请</td><td>1,800 单</td><td>需求发现报告</td><td>待样本验证</td></tr>
+<tr><td>年工作日</td><td>250 天</td><td>常规</td><td>假设</td></tr>
+<tr><td>年申请量</td><td>450,000 单</td><td>计算</td><td>派生</td></tr>
+<tr><td>初审单均耗时</td><td>18 分钟（目标 8 分钟）</td><td>需求发现报告</td><td>待验证</td></tr>
+<tr><td>跨资料核验占比</td><td>60%</td><td>需求发现报告</td><td>待验证</td></tr>
+<tr><td>资料退回率</td><td>31%（目标 15%）</td><td>需求发现报告</td><td>待验证</td></tr>
+<tr><td>综合人力成本</td><td>60 元/工时（约 12 万元/人·年）</td><td>行业区间</td><td>假设</td></tr>
+<tr><td>单次退回附加成本</td><td>18 分钟（沟通 10 + 重审 8）</td><td>访谈推断</td><td>待验证</td></tr>
+<tr><td>试点覆盖品类</td><td>2 个品类 ≈ 20% 单量</td><td>方案设定</td><td>假设</td></tr>
+</table>
+<p><strong>试点口径年单量</strong> = 450,000 × 20% = <strong>90,000 单</strong>。</p>
+<h2>二、三档报价</h2>
+<table>
+<tr><th>项目</th><th>低（MVP 只读预检）</th><th>中（推荐 · 全链路闭环）</th><th>高（全品类 + 私有化）</th></tr>
+<tr><td>范围</td><td>冲突预检 + 提示，无工单闭环</td><td>预检 + 数据质量门 + 工单闭环 + 权限签核 + 快照兜底 + 指标口径 + RAG 问答 + 评测集</td><td>中档全部 + 多模态 OCR 位置 + 全品类规则库 + 私有化部署 + 12 个月调优</td></tr>
+<tr><td>覆盖品类</td><td>1 个</td><td>2 个（试点）</td><td>5+ 个</td></tr>
+<tr><td>建设人力</td><td>3 人月</td><td>7 人月</td><td>13 人月</td></tr>
+<tr><td><strong>一次性建设费</strong></td><td><strong>18 万元</strong></td><td><strong>42 万元</strong></td><td><strong>78 万元</strong></td></tr>
+<tr><td>年运维（含模型调用）</td><td>3.0 万元/年</td><td>8.4 万元/年</td><td>15.6 万元/年</td></tr>
+<tr><td>首年总投入</td><td>21.0 万元</td><td>50.4 万元</td><td>93.6 万元</td></tr>
+<tr><td>交付周期</td><td>4 周</td><td>10 周</td><td>18 周</td></tr>
+<tr><td>关键交付物</td><td>预检工具 + 提示接口 + 自测报告</td><td>全部 8 项交付物 + 可运行系统 + 评测报告 + 上线清单</td><td>中档 + 多品类规则库 + 私有化部署包 + 年度调优报告</td></tr>
+<tr><td>主要风险</td><td>无闭环，误报无法处置；难以验收</td><td>依赖授权清单定稿</td><td>周期长，规则维护成本高</td></tr>
+</table>
+<h3>成本明细（中档示例）</h3>
+<table>
+<tr><th>成本项</th><th>金额</th><th>说明</th></tr>
+<tr><td>人力（7 人月 × 2.8 万元）</td><td>19.6 万</td><td>后端 3 / Agent 1.5 / 前端 1 / 测试 1 / 实施 0.5</td></tr>
+<tr><td>模型调用（建设期 + 首年）</td><td>4.8 万</td><td>按试点量估算，离线演示模式可降至近零</td></tr>
+<tr><td>基础设施</td><td>4.0 万</td><td>应用服务器、向量库、备份存储</td></tr>
+<tr><td>实施与培训</td><td>5.0 万</td><td>审核员培训、规则库初始化、试运行陪跑</td></tr>
+<tr><td>评测与合规评审</td><td>6.0 万</td><td>200 单历史回放标注、合规评审会</td></tr>
+<tr><td>预备金（10%）</td><td>3.9 万</td><td>需求变更/规则补充</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>43.3 万</strong></td><td>对外报价 42 万（不含税，含一年质保）</td></tr>
+</table>
+<h2>三、收益测算（试点口径）</h2>
+<h3>3.1 效率收益（初审时长 18 → 8 分钟）</h3>
+<pre>
+年节省工时 = 90,000 单 × 10 分钟 ÷ 60 = 15,000 工时
+年化收益 = 15,000 × 60 元/工时 = 90.0 万元
+</pre>
+<h3>3.2 返工收益（退回率 31% → 15%）</h3>
+<pre>
+年减少退回单 = 90,000 × (31% − 15%) = 14,400 单
+年节省工时 = 14,400 × 18 分钟 ÷ 60 = 4,320 工时
+年化收益 = 4,320 × 60 = 25.9 万元
+</pre>
+<h3>3.3 合计与回收期</h3>
+<table>
+<tr><th>档位</th><th>年化收益</th><th>首年投入</th><th>首年净收益</th><th>ROI（首年）</th><th>静态回收期</th></tr>
+<tr><td>低</td><td>约 63 万（仅效率收益 × 70%，无返工收益）</td><td>21.0 万</td><td>42.0 万</td><td>3.0 倍</td><td>约 4.0 个月</td></tr>
+<tr><td><strong>中</strong></td><td><strong>115.9 万</strong></td><td><strong>50.4 万</strong></td><td><strong>65.5 万</strong></td><td><strong>2.3 倍</strong></td><td><strong>约 5.2 个月</strong></td></tr>
+<tr><td>高</td><td>约 290 万（覆盖 50% 单量）</td><td>93.6 万</td><td>196.4 万</td><td>3.1 倍</td><td>约 3.9 个月</td></tr>
+</table>
+<blockquote>回收期 = 首年总投入 ÷（年化收益 ÷ 12）。中档：50.4 ÷ 9.66 ≈ 5.2 个月。</blockquote>
+<h2>四、敏感性分析（中档）</h2>
+<table>
+<tr><th>情景</th><th>假设变化</th><th>年化收益</th><th>回收期</th><th>结论</th></tr>
+<tr><td>最差</td><td>时长降幅仅 5 分钟、退回率仅降到 25%</td><td>58.0 万</td><td>10.4 个月</td><td>仍可在一年内回本</td></tr>
+<tr><td>基准</td><td>按报告目标（18→8 分钟、31%→15%）</td><td>115.9 万</td><td>5.2 个月</td><td>推荐判断依据</td></tr>
+<tr><td>最好</td><td>叠加投诉下降与商家满意度提升</td><td>130 万+</td><td>4.6 个月</td><td>需补充投诉侧数据验证</td></tr>
+</table>
+<p><strong>盈亏平衡点</strong>：中档方案只要<strong>单均节省 4.4 分钟</strong>（约 18→13.6 分钟）即可覆盖首年投入。</p>
+<h2>五、付款与交付节奏（建议）</h2>
+<table>
+<tr><th>节点</th><th>比例</th><th>触发条件</th></tr>
+<tr><td>合同签订</td><td>30%</td><td>需求定义文档与验收清单双方确认</td></tr>
+<tr><td>M1 冲突预检上线</td><td>30%</td><td>召回率 ≥ 97%，自动放行 = 0</td></tr>
+<tr><td>M2/M3 工单闭环与权限</td><td>30%</td><td>工单三硬字段齐全率 100%，权限清单定稿</td></tr>
+<tr><td>试点验收</td><td>10%</td><td>AC-01~AC-10 全部通过或偏差经书面确认</td></tr>
+</table>
+<h2>六、不包含项与前提条件</h2>
+<ul>
+<li>不包含：商品中心/审核工单系统的改造、OCR 服务采购、模型私有化硬件、商家侧界面改造。</li>
+<li>前提：数据接口只读可用；授权岗位清单由合规专员定稿；试点品类与样本量由运营经理确认。</li>
+<li>免责：本文收益为<strong>测算值而非承诺值</strong>，实际结果以试点取数为准；若 M0 基线显著低于报告口径，报价范围与收益模型需重新评估。</li>
+</ul>
+<h2>七、建议</h2>
+<ol>
+<li><strong>选中档</strong>：低档省 24 万但拿不到返工收益，且无工单闭环无法通过合规验收；高档在授权清单未定稿前属于超前投入。</li>
+<li><strong>先做 M0</strong>：1 周取数成本约 2 万，可避免在错误基数上做 40 万级决策。</li>
+<li><strong>分段付款 + 硬验收</strong>：把验收标准写进合同（AC-01~AC-10），比压价更能控制风险。</li>
+</ol>
+</body></html>

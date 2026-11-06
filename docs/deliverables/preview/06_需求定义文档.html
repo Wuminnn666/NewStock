@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>需求定义文档 · 商品上架审核 AI 改造</title>
+<style>
+@page { size: A4; margin: 2.2cm 2.0cm; }
+body { font-family: "Microsoft YaHei","PingFang SC",serif; font-size: 10.5pt;
+       line-height: 1.75; color: #1f2d3d; }
+.cover { text-align: center; padding-top: 180px; page-break-after: always; }
+.cover .kicker { font-size: 11pt; color: #5b7fd4; letter-spacing: 2px; }
+.cover h1 { font-size: 26pt; margin: 18px 0 10px; color: #14243a; }
+.cover .sub { font-size: 11.5pt; color: #5d6f82; margin-top: 6px; }
+.cover .meta { margin-top: 60px; font-size: 10pt; color: #7b8a99; }
+h1 { font-size: 19pt; color: #14243a; border-bottom: 2.5px solid #5b7fd4;
+     padding-bottom: 6px; margin: 26px 0 12px; page-break-after: avoid; }
+h2 { font-size: 15pt; color: #1d3f6e; margin: 22px 0 10px; page-break-after: avoid; }
+h3 { font-size: 12.5pt; color: #23496f; margin: 16px 0 8px; page-break-after: avoid; }
+p { margin: 6px 0; text-align: justify; }
+ul, ol { margin: 6px 0 6px 22px; }
+li { margin: 3px 0; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0 14px;
+        font-size: 9.5pt; page-break-inside: avoid; }
+th { background: #eaf0fd; color: #1d3f6e; font-weight: 600; text-align: left; }
+th, td { border: 1px solid #c9d6e4; padding: 6px 8px; vertical-align: top; }
+tr:nth-child(even) td { background: #fafcff; }
+blockquote { margin: 10px 0; padding: 8px 12px; background: #f4f7fb;
+             border-left: 4px solid #5b7fd4; color: #44576b; font-size: 10pt; }
+pre { background: #f6f8fa; border: 1px solid #dde5ee; padding: 10px; font-size: 9pt;
+      font-family: Consolas,monospace; white-space: pre-wrap; }
+code { font-family: Consolas,monospace; background: #eef2f7; padding: 1px 3px; font-size: 9.5pt; }
+strong { color: #14243a; }
+hr { border: none; border-top: 1px solid #dde5ee; margin: 16px 0; }
+.note { background: #fff8e6; border: 1px solid #e8d199; padding: 10px 12px; margin: 10px 0; }
+</style></head><body>
+<div class="cover">
+  <div class="kicker">交付物 06 · 需求定义</div>
+  <h1>需求定义文档 · 商品上架审核 AI 改造</h1>
+  <div class="sub">痛点 → AI 改造点 → 优先级 → 需求规格与追溯矩阵 → 验收标准清单</div>
+  <div class="meta">版本 v1.0 · 2026-11-06</div>
+</div>
+<table>
+<tr><th>项目</th><th>内容</th></tr>
+<tr><td>文档版本</td><td>v1.0</td></tr>
+<tr><td>编制依据</td><td>六人访谈记录、典型事件访谈（唐映秋）、业务需求发现报告、四份客户简报</td></tr>
+<tr><td>需求性质</td><td><strong>待验证假设</strong>——调查覆盖完整不等于业务需求已确认，全部需求须经试点取数验证</td></tr>
+<tr><td>适用范围</td><td>商品提交后、人工审核前的只读预检段；不含自动放行、自动驳回</td></tr>
+<tr><td>编制日期</td><td>2026-11-06</td></tr>
+</table>
+<h2>一、痛点清单（访谈证据 → 问题定义）</h2>
+<table>
+<tr><th>编号</th><th>痛点</th><th>证据来源</th><th>现状量化</th><th>影响</th></tr>
+<tr><td>PA-1</td><td>冲突时以哪份资料为准无明文，无法定案</td><td>唐映秋（f20）</td><td>退回率 31%，目标 15%</td><td>同一单反复退回 2–3 轮</td></tr>
+<tr><td>PA-2</td><td>退回后接手人不明、闭环标准缺失</td><td>唐映秋、傅景</td><td>交接靠人盯，无工单字段</td><td>责任无法追溯，审计不可还原</td></tr>
+<tr><td>PA-3</td><td>同一商品多次退回，原因散落多张记录</td><td>唐映秋、林亦舟</td><td>交接时易漏，靠便签/聊天</td><td>重复沟通，商家体验差</td></tr>
+<tr><td>PA-4</td><td>字段口径不统一、OCR 无位置、证书过期未标注</td><td>秦芮</td><td>电压填法至少 3 种</td><td>冲突误报高，真冲突被淹没</td></tr>
+<tr><td>PA-5</td><td>接口只读、数据 T+1，快照过期无标识</td><td>秦芮</td><td>最长滞后 1 天</td><td>&quot;改了还被退&quot;</td></tr>
+<tr><td>PA-6</td><td>无固定分母与验收口径，只考核退回数会诱发压单</td><td>唐映秋反问、傅景</td><td>口径未定</td><td>指标失真，试点无法验收</td></tr>
+<tr><td>PA-7</td><td>审核人力被跨资料核验占满</td><td>顾明岚、报告</td><td>占审核时间约 60%，初审 18 分钟</td><td>单均成本高，上新慢</td></tr>
+</table>
+<h2>二、AI 改造点与优先级</h2>
+<p>优先级判定规则：<strong>风险不可逆性 × 价值 × 可验证性</strong>。涉及放行/驳回的一律不做（合规红线）。</p>
+<table>
+<tr><th>编号</th><th>改造点</th><th>优先级</th><th>为什么</th><th>明确不做</th></tr>
+<tr><td>REQ-1</td><td><strong>属性冲突预检</strong>（跨资料同维度数值比对，只读提示）</td><td><strong>P0</strong></td><td>覆盖 60% 耗时环节，不可逆风险低</td><td>不判定哪份为准、不自动退回</td></tr>
+<tr><td>REQ-2</td><td><strong>数据质量门 + 人工修复队列</strong>（主编号/单位归一/效期标注）</td><td><strong>P0</strong></td><td>不先做，冲突无法稳定暴露</td><td>不自动改写商家数据</td></tr>
+<tr><td>REQ-3</td><td><strong>转人工兜底</strong>（工单三硬字段：触发原因/接手人/确认时间）</td><td><strong>P0</strong></td><td>合规要求&quot;不能只给模糊提醒&quot;</td><td>不自动分派处罚、不代替签核</td></tr>
+<tr><td>REQ-4</td><td><strong>权限与授权岗位清单</strong>（按品类签核人、查看范围、禁借账号）</td><td><strong>P0</strong></td><td>试点放行的前置条件</td><td>不开放写入回写（首期）</td></tr>
+<tr><td>REQ-5</td><td><strong>快照兜底</strong>（时间戳 + 超周期标&quot;暂未更新&quot;）</td><td>P1</td><td>接口 T+1，避免旧数据当实时</td><td>不承诺实时一致性</td></tr>
+<tr><td>REQ-6</td><td><strong>指标口径</strong>（固定分母、排除规则、分岗完成时间）</td><td>P1</td><td>无口径则无法验收</td><td>不用单一指标考核一线</td></tr>
+<tr><td>REQ-7</td><td>知识库 RAG 问答（规则条文可引用）</td><td>P1</td><td>降低&quot;规则怎么理解&quot;的沟通成本</td><td>不给法律意见、不编造条文</td></tr>
+<tr><td>REQ-8</td><td>多模态 OCR 位置保留（图片文字定位到框）</td><td>P2</td><td>提升冲突举证精度</td><td>不做图片真伪鉴定</td></tr>
+</table>
+<h2>三、需求规格（规格化描述）</h2>
+<h3>REQ-1 属性冲突预检</h3>
+<ul>
+<li><strong>输入</strong>：商品标题、详情描述、规格表、图片文字（OCR 结果）、证书型号清单。</li>
+<li><strong>处理</strong>：按&quot;维度&quot;归一化（电压 V、功率 W、容量 mAh/mL、重量 g、型号字符串），同一维度跨字段比对；数值差异超阈值或型号不在覆盖范围即判为冲突。</li>
+<li><strong>输出</strong>：冲突列表 <code>[{维度, 字段A位置+值, 字段B位置+值, 差异说明}]</code>；<strong>不含结论性建议</strong>。</li>
+<li><strong>约束</strong>：只读；不得修改任何商家资料；不得给出&quot;以哪份为准&quot;的判断。</li>
+<li><strong>异常</strong>：无字段 → 返回&quot;资料不足，无法预检&quot;；单位无法归一 → 标记&quot;待人工确认&quot;而非猜测。</li>
+</ul>
+<h3>REQ-2 数据质量门与修复队列</h3>
+<ul>
+<li><strong>输入</strong>：商品主编号、事件时间、版本、单位字段、证书有效期。</li>
+<li><strong>规则</strong>：主编号缺失/重复 → 拒绝进入预检；单位混用 → 归一化并记录原文；证书过期 → 标注&quot;已过期&quot;并强制转人工。</li>
+<li><strong>输出</strong>：质量报告（通过项/修复项/拒绝项）+ 修复队列条目。</li>
+<li><strong>约束</strong>：修复由人执行，系统只登记与提示。</li>
+</ul>
+<h3>REQ-3 转人工兜底</h3>
+<ul>
+<li><strong>触发条件</strong>（满足任一即入队）：属性冲突、资质临期/过期、证书型号不覆盖、关键系统不可用、AI 置信度低于阈值。</li>
+<li><strong>工单必填</strong>：触发原因、接手人（岗位）、确认时间；缺任一项视为未闭环。</li>
+<li><strong>闭环判定</strong>：接手人完成判定并回填确认时间；重复确认须拒绝（防重复处置）。</li>
+<li><strong>约束</strong>：AI 不得代替审核员下结论；工单不得自动关闭。</li>
+</ul>
+<h3>REQ-4 权限与授权</h3>
+<ul>
+<li>按品类定义签核岗位与查看范围（参数/图片/说明书/证书/退回原因）。</li>
+<li>账号不得借用；审核员不得代合规专员签核。</li>
+<li>所有签核动作留痕：操作人、时间、AI 建议、人工是否覆盖。</li>
+</ul>
+<h3>REQ-5 快照兜底</h3>
+<ul>
+<li>知识/数据快照带 <code>built_at</code> 时间戳；超过一个同步周期（默认 15 分钟 / T+1）标记 <code>stale</code>，界面显示&quot;暂未更新&quot;。</li>
+<li>接口中断时进入只读快照模式并提示数据截止时间；恢复后按业务编号去重补齐。</li>
+</ul>
+<h3>REQ-6 指标口径</h3>
+<ul>
+<li>每个指标必须声明：分子、分母、排除规则、统计周期、分岗拆解。</li>
+<li>固定分母约定：执行失败计入分母不剔除；一次审核流程只计一张确认单。</li>
+<li>双轨考核：效率（退回次数/时长）+ 质量（交接责任可追溯），并设&quot;压单率&quot;反向约束。</li>
+</ul>
+<h2>四、需求边界（不做什么）</h2>
+<table>
+<tr><th>边界项</th><th>说明</th></tr>
+<tr><td>不做自动放行 / 自动驳回</td><td>合规红线：最终决定必须由授权岗位签核</td></tr>
+<tr><td>不改写商家资料</td><td>首期仅只读；写操作走单独审批</td></tr>
+<tr><td>不做资质真伪鉴定</td><td>仅校验&quot;是否具备/是否过期/型号是否覆盖&quot;</td></tr>
+<tr><td>不承诺实时数据</td><td>以快照 + 时间戳兜底，明确告知滞后</td></tr>
+<tr><td>不替代法律/合规意见</td><td>规则解释以制度文档为准，AI 只引用</td></tr>
+<tr><td>不覆盖售中售后</td><td>本次范围止于&quot;上架前审核&quot;</td></tr>
+</table>
+<h2>五、需求追溯矩阵</h2>
+<table>
+<tr><th>痛点</th><th>需求</th><th>系统实现位置</th><th>验收用例</th><th>状态</th></tr>
+<tr><td>PA-1 冲突无法定案</td><td>REQ-1</td><td><code>app/tools.py: attribute_conflict_check</code>、<code>app/agent/decider.py</code> 校验链</td><td>AC-01 220V/110V 拦截</td><td>已实现</td></tr>
+<tr><td>PA-2 责任链断裂</td><td>REQ-3</td><td><code>db.ManualTask</code>、<code>tools.escalate_manual</code>、<code>/admin/tasks</code>、<code>POST /api/admin/tasks/{id}/confirm</code></td><td>AC-02 三硬字段 + 重复确认 409</td><td>已实现</td></tr>
+<tr><td>PA-3 记录分散</td><td>REQ-2 / REQ-3</td><td>工单 <code>biz_ref</code> 关联商品编号、<code>trigger_reason</code> 结构化</td><td>AC-03 同一商品多单可聚合</td><td>已实现</td></tr>
+<tr><td>PA-4 口径不统一</td><td>REQ-2</td><td>归一化与质量门（预检前置）</td><td>AC-04 单位混用不误报</td><td>部分实现</td></tr>
+<tr><td>PA-5 快照过期</td><td>REQ-5</td><td><code>knowledge.IndexState.snapshot_status</code>、<code>GET /api/health</code></td><td>AC-05 stale 标记</td><td>已实现</td></tr>
+<tr><td>PA-6 验收口径</td><td>REQ-6</td><td><code>GET /api/admin/metrics</code>（带分母定义）</td><td>AC-06 指标含分母与排除规则</td><td>已实现</td></tr>
+<tr><td>PA-7 人力占用</td><td>REQ-1 / REQ-7</td><td>冲突预检 + RAG 问答</td><td>AC-07 30 条评测集通过</td><td>已实现</td></tr>
+</table>
+<h2>六、验收标准清单</h2>
+<table>
+<tr><th>编号</th><th>验收项</th><th>通过标准（可量化）</th><th>验证方法</th></tr>
+<tr><td>AC-01</td><td>冲突召回</td><td>历史样本回放，属性冲突召回率 ≥ 97%</td><td>抽取 200 单历史冲突单回放，人工标注为金标准</td></tr>
+<tr><td>AC-02</td><td>冲突单不误放行</td><td>冲突单 100% 进入人工队列，自动放行数 = 0</td><td>检查工单表与确认单，自动放行计数必须为 0</td></tr>
+<tr><td>AC-03</td><td>工单闭环</td><td>每张工单三硬字段齐全率 100%，重复确认被拒</td><td>抽查 30 张工单 + 接口重复提交测试</td></tr>
+<tr><td>AC-04</td><td>误报可控</td><td>试点期误报率 ≤ 15%，且每条误报可一键标记</td><td>审核员标记统计，周报汇总</td></tr>
+<tr><td>AC-05</td><td>快照可识别</td><td>stale 状态在接口与界面 100% 可见</td><td>构造超周期场景，检查 <code>/api/health</code> 与页面提示</td></tr>
+<tr><td>AC-06</td><td>指标可复算</td><td>任取一个指标，按文档口径可手工复算出相同数值</td><td>现场用导出数据复算 3 个指标</td></tr>
+<tr><td>AC-07</td><td>回归评测</td><td>30 条评测用例通过率 100%，安全类 10/10</td><td><code>python eval_runner.py</code></td></tr>
+<tr><td>AC-08</td><td>效率提升</td><td>试点品类初审单均 18 → ≤ 8 分钟</td><td>试点前后各取 2 周工单时长对比</td></tr>
+<tr><td>AC-09</td><td>退回率下降</td><td>试点品类退回率 31% → ≤ 15%</td><td>按固定分母统计（当期提交申请数为分母）</td></tr>
+<tr><td>AC-10</td><td>审计可还原</td><td>任取一单，可还原&quot;谁/何时/AI 建议/人是否覆盖&quot;</td><td>抽查 10 单，全链路留痕</td></tr>
+</table>
+<h2>七、假设、风险与待确认事项</h2>
+<table>
+<tr><th>类型</th><th>内容</th><th>责任人（待确认）</th></tr>
+<tr><td>假设</td><td>冲突集中在少数维度（电压/功率/型号），可枚举</td><td>商品数据工程师</td></tr>
+<tr><td>假设</td><td>历史工单可用于回放评测，且主编号可对齐</td><td>商品数据工程师</td></tr>
+<tr><td>风险</td><td>OCR 不保留位置 → 冲突举证精度不足</td><td>商品数据工程师</td></tr>
+<tr><td>风险</td><td>只考核退回数 → 一线压单，指标失真</td><td>商品运营经理 + 合规专员</td></tr>
+<tr><td>风险</td><td>授权岗位清单未定稿 → 试点不能放行</td><td>商品合规专员</td></tr>
+<tr><td>待确认</td><td>审批人名单、预算额度、停止条件判定人</td><td>商品运营经理 / 合规专员</td></tr>
+<tr><td>待确认</td><td>修复队列责任人与时限</td><td>数据工程师 + 内容审核员</td></tr>
+<tr><td>待确认</td><td>留存最终期限（暂按 ≥ 1 年）</td><td>商品合规专员</td></tr>
+</table>
+</body></html>

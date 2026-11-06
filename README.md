@@ -168,6 +168,21 @@ python scripts/build_checklist_html.py   # 由 md 生成评审版 HTML 清单
 上线前检查清单见 [`docs/go_live_checklist.md`](docs/go_live_checklist.md)（25 项，含负责人 / 验证方法 / 通过标准 / 发布 runbook），
 评审打印版：[`docs/go_live_checklist.html`](docs/go_live_checklist.html)。
 
+## 交付物（文档集）
+
+完整的需求发现与方案文档见 [`docs/deliverables/00_交付物清单.md`](docs/deliverables/00_交付物清单.md)，共 8 项：
+
+| # | 交付物 | 位置 |
+|---|---|---|
+| ① | 六人访谈记录（md / json / csv，18 轮对话） | `docs/deliverables/01_六人访谈记录/` |
+| ② | 项目简报 4 份 + 业务需求发现报告 | `docs/deliverables/02_项目简报/` |
+| ③ | 典型事件访谈：原始 txt + AI 整理 docx | `docs/deliverables/03_典型事件访谈/` |
+| ④ | 行业分析（md + docx） | `docs/deliverables/04_行业分析.*` |
+| ⑤ | 两份流程图：改造前 / 改造后（svg，可浏览器打开） | `docs/deliverables/05_流程图/` |
+| ⑥ | 需求定义文档（追溯矩阵 + 验收标准 AC-01~AC-10） | `docs/deliverables/06_需求定义文档.docx` |
+| ⑦ | 详细项目设计方案 | `docs/deliverables/07_详细项目设计方案.docx` |
+| ⑧ | 报价与投入产出测算（低/中/高） | `docs/deliverables/08_报价与投入产出测算.docx` |
+
 ## 说明
 
 - 向量检索为进程内 FAISS，服务重启后从 SQLite 重建。

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>详细项目设计方案 · 商品上架与资料审核系统</title>
+<style>
+@page { size: A4; margin: 2.2cm 2.0cm; }
+body { font-family: "Microsoft YaHei","PingFang SC",serif; font-size: 10.5pt;
+       line-height: 1.75; color: #1f2d3d; }
+.cover { text-align: center; padding-top: 180px; page-break-after: always; }
+.cover .kicker { font-size: 11pt; color: #5b7fd4; letter-spacing: 2px; }
+.cover h1 { font-size: 26pt; margin: 18px 0 10px; color: #14243a; }
+.cover .sub { font-size: 11.5pt; color: #5d6f82; margin-top: 6px; }
+.cover .meta { margin-top: 60px; font-size: 10pt; color: #7b8a99; }
+h1 { font-size: 19pt; color: #14243a; border-bottom: 2.5px solid #5b7fd4;
+     padding-bottom: 6px; margin: 26px 0 12px; page-break-after: avoid; }
+h2 { font-size: 15pt; color: #1d3f6e; margin: 22px 0 10px; page-break-after: avoid; }
+h3 { font-size: 12.5pt; color: #23496f; margin: 16px 0 8px; page-break-after: avoid; }
+p { margin: 6px 0; text-align: justify; }
+ul, ol { margin: 6px 0 6px 22px; }
+li { margin: 3px 0; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0 14px;
+        font-size: 9.5pt; page-break-inside: avoid; }
+th { background: #eaf0fd; color: #1d3f6e; font-weight: 600; text-align: left; }
+th, td { border: 1px solid #c9d6e4; padding: 6px 8px; vertical-align: top; }
+tr:nth-child(even) td { background: #fafcff; }
+blockquote { margin: 10px 0; padding: 8px 12px; background: #f4f7fb;
+             border-left: 4px solid #5b7fd4; color: #44576b; font-size: 10pt; }
+pre { background: #f6f8fa; border: 1px solid #dde5ee; padding: 10px; font-size: 9pt;
+      font-family: Consolas,monospace; white-space: pre-wrap; }
+code { font-family: Consolas,monospace; background: #eef2f7; padding: 1px 3px; font-size: 9.5pt; }
+strong { color: #14243a; }
+hr { border: none; border-top: 1px solid #dde5ee; margin: 16px 0; }
+.note { background: #fff8e6; border: 1px solid #e8d199; padding: 10px 12px; margin: 10px 0; }
+</style></head><body>
+<div class="cover">
+  <div class="kicker">交付物 07 · 详细设计</div>
+  <h1>详细项目设计方案 · 商品上架与资料审核系统</h1>
+  <div class="sub">四层架构 / 数据模型 / Agent 编排 / 安全护栏 / 部署运维</div>
+  <div class="meta">版本 v1.0 · 2026-11-06</div>
+</div>
+<table>
+<tr><th>项目</th><th>内容</th></tr>
+<tr><td>方案版本</td><td>v1.0</td></tr>
+<tr><td>代码仓库</td><td>https://github.com/Wuminnn666/NewStock</td></tr>
+<tr><td>技术栈</td><td>Python 3.13 / FastAPI / SQLAlchemy 2.0 / SQLite / FAISS + BM25 / Jinja2 / SSE</td></tr>
+<tr><td>部署形态</td><td>单实例可运行（演示级），可平滑扩展为多实例 + MySQL + 独立向量库</td></tr>
+</table>
+<h2>一、总体架构（四层，职责不可替代）</h2>
+<pre>
+┌─ 入口层 ─────────────────────────────────────────────┐
+│ C 端提交方：/login → /chat（流式对话 + 引用来源）        │
+│ B 端管理：/admin/{rules,prompts,audit,agent,tasks}    │
+└──────────────────────┬───────────────────────────────┘
+┌─ 服务层（FastAPI）────┴───────────────────────────────┐
+│ 鉴权 JWT + RBAC 三角色 ｜ SSE 流式 ｜ 限流/配额/连接闸门 │
+│ /api/chat  /api/agent/run  /api/agent/confirm  /api/health │
+└──────────────────────┬───────────────────────────────┘
+┌─ 智能体层（Agent 编排）┴──────────────────────────────┐
+│ 意图识别(4类) → 计划生成 → 工具调用(≤5轮) → 强制人工确认 │
+│ Harness 预算控制 ｜ 逐轮留痕 ｜ precheck_token 硬门禁    │
+└──────────────────────┬───────────────────────────────┘
+┌─ 数据模型层 ─────────┴───────────────────────────────┐
+│ LLM 网关（OpenAI 兼容，可插拔）｜ FAISS + BM25 混合检索 │
+│ 业务库 SQLite（16 表，SQLAlchemy ORM，可切 MySQL）      │
+└──────────────────────────────────────────────────────┘
+</pre>
+<h2>二、模块与代码位置</h2>
+<table>
+<tr><th>模块</th><th>文件</th><th>关键内容</th></tr>
+<tr><td>配置</td><td><code>app/config.py</code></td><td>环境变量集中管理；<code>ENV=prod</code> 拒绝弱密钥启动；LLM 超时、限流、配额、降级开关</td></tr>
+<tr><td>数据层</td><td><code>app/db.py</code></td><td>16 张表；WAL + <code>busy_timeout=30s</code>；在线备份 API</td></tr>
+<tr><td>知识库</td><td><code>app/knowledge.py</code></td><td>jieba 分词、BM25、FAISS（IndexFlatIP）、<code>analyze_support()</code> 依据判定、<code>strip_injection()</code></td></tr>
+<tr><td>工具层</td><td><code>app/tools.py</code></td><td>9 个工具（含 <code>attribute_conflict_check</code>、<code>escalate_manual</code>）；<code>DISPATCH</code> 白名单；状态门禁 E-STATE-001/002</td></tr>
+<tr><td>Agent</td><td><code>app/agent/{harness,decider,prompts,trace}.py</code></td><td>决策器可插拔（LLM / 启发式）；5 轮预算；强制中断确认</td></tr>
+<tr><td>接口</td><td><code>app/api.py</code></td><td>认证、SSE 对话、Agent 运行、后台管理、健康探针</td></tr>
+<tr><td>安全护栏</td><td><code>app/guard.py</code></td><td>限流、日配额、并发闸门、SSE 连接计数、注入检测、脱敏、安全事件</td></tr>
+<tr><td>页面</td><td><code>app/pages.py</code> + <code>app/templates/</code></td><td>SSR 页面；Starlette 新签名 <code>TemplateResponse(request, name, ctx)</code></td></tr>
+<tr><td>运维</td><td><code>scripts/{backup,retention,install_schedule,load_test,sse_selftest}.py</code></td><td>备份/清理/定时任务/压测/闸门自测</td></tr>
+</table>
+<h2>三、数据模型（核心表）</h2>
+<table>
+<tr><th>表</th><th>用途</th><th>关键字段</th></tr>
+<tr><td><code>users</code></td><td>账号与角色</td><td>username, password_hash, role(submitter/reviewer/admin)</td></tr>
+<tr><td><code>products</code></td><td>商品草稿</td><td>title, category, draft_no</td></tr>
+<tr><td><code>attachments</code></td><td>资料附件</td><td>product_id, kind, filename, sha256</td></tr>
+<tr><td><code>review_records</code></td><td>审核记录</td><td>product_id, result, reason</td></tr>
+<tr><td><code>rule_docs</code> / <code>knowledge_chunks</code></td><td>规则库与切片</td><td>file, chunk_index, content, embedding</td></tr>
+<tr><td><code>chat_sessions</code> / <code>chat_messages</code></td><td>会话与消息</td><td>session_id, role, content, citations</td></tr>
+<tr><td><code>agent_runs</code> / <code>agent_steps</code></td><td>执行与逐轮轨迹</td><td>run_id, round, tool_name, args, result, elapsed_ms</td></tr>
+<tr><td><code>agent_confirmations</code></td><td>确认单</td><td>run_id, status(pending/confirmed/rejected), decided_by</td></tr>
+<tr><td><code>manual_tasks</code></td><td><strong>人工处置队列</strong></td><td>task_no, biz_ref, category, trigger_reason, conflict_detail, handler_role, status, confirmed_at, confirm_note</td></tr>
+<tr><td><code>llm_usage</code></td><td>用量与配额</td><td>day, user_id, tokens</td></tr>
+<tr><td><code>security_events</code></td><td>安全事件</td><td>event_type, user_id, detail, action_taken</td></tr>
+<tr><td><code>prompt_templates</code> / <code>audit_logs</code></td><td>提示词与审计</td><td>key, content / actor, action, target</td></tr>
+</table>
+<p>切换 MySQL：仅改 <code>DB_URL</code>；建表由 <code>Base.metadata.create_all</code> 或 Alembic 迁移完成（建议上线前引入 Alembic）。</p>
+<h2>四、Agent 编排设计</h2>
+<h3>4.1 主循环（Harness）</h3>
+<pre>
+用户输入
+  → 安全前置（注入检测/套取提示词 → 直接拒绝 + 留痕）
+  → 意图识别：qa / material_only / validate / submit
+  → 计划：按意图生成工具序列（只读工具 → 校验工具 → 写工具）
+  → 循环（≤5 轮）：执行工具 → 记录 agent_steps → 决策器决定下一步
+  → 若下一步为 create_goods_draft：强制中断，生成确认单（SSE 事件 confirm_required）
+  → 用户确认（/api/agent/confirm）：校验 precheck_token + 三项校验通过
+  → 创建草稿 / 拒绝并说明原因
+</pre>
+<h3>4.2 校验链与门禁</h3>
+<pre>
+material_validate → qualification_audit → compliance_check → attribute_conflict_check
+        │                    │                    │                    │
+        └──── 任一 failed ───┴────────────────────┴──── 生成待补清单 / 转人工
+                                                      ↓
+                                          create_goods_draft（需 precheck_token）
+</pre>
+<ul>
+<li><strong>precheck_token</strong>：由上游校验通过后签发，绑定 run_id 与内容哈希；缺失或不匹配 → <code>E-STATE-001/002</code> 拒绝。</li>
+<li><strong>冲突分支</strong>：<code>attribute_conflict_check</code> 检出冲突时禁止建草稿，必走 <code>escalate_manual</code> 建工单。</li>
+<li><strong>只读白名单</strong>：<code>/api/agent/tools</code> 仅暴露只读工具；写类工具一律 403，杜绝绕过确认单直接建草稿。</li>
+</ul>
+<h3>4.3 工具契约（节选）</h3>
+<table>
+<tr><th>工具</th><th>类型</th><th>输入</th><th>输出</th><th>约束</th></tr>
+<tr><td><code>search_review_rules</code></td><td>只读</td><td>query, top_k</td><td>results[], support{supported,coverage,subject}</td><td>依据不足必须返回 supported=false</td></tr>
+<tr><td><code>get_category_requirements</code></td><td>只读</td><td>category</td><td>required[]</td><td>类目未知返回空并提示</td></tr>
+<tr><td><code>material_validate</code></td><td>只读</td><td>session_id, payload</td><td>passed, missing[]</td><td>办理中/过期不算已提供</td></tr>
+<tr><td><code>qualification_audit</code></td><td>只读</td><td>同上</td><td>passed, issues[]</td><td>证书型号覆盖校验</td></tr>
+<tr><td><code>compliance_check</code></td><td>只读</td><td>同上</td><td>passed, violations[]</td><td>违禁词/功效宣称</td></tr>
+<tr><td><code>attribute_conflict_check</code></td><td>只读</td><td>同上</td><td>passed, conflicts[{dimension, fieldA, fieldB}]</td><td><strong>只提示不处置</strong></td></tr>
+<tr><td><code>create_goods_draft</code></td><td>写</td><td>payload, precheck_token</td><td>draft_id</td><td>必须人工确认 + token 校验</td></tr>
+<tr><td><code>escalate_manual</code></td><td>写</td><td>biz_ref, reason, conflict_detail</td><td>task_no, handler_role</td><td>三硬字段必填</td></tr>
+<tr><td><code>request_missing_material</code></td><td>写</td><td>session_id, items</td><td>task_id, missing[]</td><td>任一校验失败时调用</td></tr>
+</table>
+<h2>五、检索与回答质量</h2>
+<ul>
+<li><strong>混合检索</strong>：BM25（词级 jieba）+ FAISS 向量（离线模式用稳定哈希伪向量，可切真实 embedding），得分融合后取 top-k。</li>
+<li><strong>依据判定</strong> <code>analyze_support()</code>：覆盖率 + 资质清单段落约束 + 主语抽取，避免&quot;top-k 永远有返回&quot;的假命中。</li>
+<li><strong>回答生成两级提炼</strong>：① 能算缺口就直接给结论（类目要求 − 已提供 → 还缺 XX）；② 从命中条文按关键词重合度抽句，不贴整段。</li>
+<li><strong>不编造约束</strong>：依据不足时明确输出&quot;未找到相关条文&quot;并给出建议，不推测标准。</li>
+<li><strong>评测</strong>：30 条用例（规则 10 / 工具 10 / 违规 5 / 多轮 5）全通过；另有 8 条留出检验。</li>
+</ul>
+<h2>六、安全设计</h2>
+<table>
+<tr><th>风险</th><th>措施</th></tr>
+<tr><td>提示词注入</td><td><code>detect_injection()</code> 命中即拒绝并记 <code>security_events</code>；检索前 <code>strip_injection()</code> 剥离注入前缀</td></tr>
+<tr><td>套取系统提示</td><td><code>is_prompt_extraction()</code>（套取动词 + 对象双条件），避免误伤正常提问</td></tr>
+<tr><td>越权建草稿</td><td>工具白名单 + <code>precheck_token</code> 门禁 + 确认单三重</td></tr>
+<tr><td>资源耗尽</td><td>滑动窗口限流（chat/agent/login 分档）、日 token 配额、LLM 并发信号量、SSE 连接上限（超额 429/42904）</td></tr>
+<tr><td>敏感信息</td><td>输出侧与后台展示脱敏（手机号/证件号）；日志截断存储</td></tr>
+<tr><td>密钥管理</td><td><code>ENV=prod</code> 校验 SECRET_KEY；演示默认口令须在上线前替换</td></tr>
+</table>
+<h2>七、可观测性</h2>
+<ul>
+<li><code>GET /api/health</code>：status / degraded / agent_enabled / sse{active,peak,rejected,limit} / llm_today / knowledge_snapshot{chunks,built_at,age_seconds,stale}。</li>
+<li><code>GET /api/admin/metrics</code>：每个指标带<strong>分母定义与排除规则</strong>；分工具 p50/avg 耗时；人工队列在办/已闭环；确认单通过率。</li>
+<li><code>GET /api/admin/security-events</code>：注入尝试、套取提示词留痕（脱敏后展示）。</li>
+<li>逐轮轨迹 <code>/admin/agent</code>：每轮工具、参数、结果摘要、耗时。</li>
+</ul>
+<h2>八、部署与运维</h2>
+<table>
+<tr><th>项</th><th>方案</th></tr>
+<tr><td>启动</td><td><code>python -m uvicorn app.main:app --host 0.0.0.0 --port 8000</code></td></tr>
+<tr><td>依赖</td><td><code>requirements.txt</code>（fastapi/uvicorn/sqlalchemy/jieba/numpy/faiss-cpu/httpx/pypdf）</td></tr>
+<tr><td>备份</td><td><code>scripts/backup.py</code>（SQLite 在线备份 API，WAL 下安全，保留 7 份）</td></tr>
+<tr><td>清理</td><td><code>scripts/retention.py</code>（默认 dry-run，<code>--apply --archive</code> 先归档再删）</td></tr>
+<tr><td>定时任务</td><td><code>scripts/install_schedule.py</code>（Windows schtasks / Linux crontab，幂等，默认 dry-run）</td></tr>
+<tr><td>压测</td><td><code>scripts/load_test.py</code>（成功率 / TTFB / 完成时延 P50·P95 / 连接水位）</td></tr>
+<tr><td>自测</td><td><code>scripts/sse_selftest.py</code>（连接闸门超额拒绝、释放可重入、无泄漏）</td></tr>
+<tr><td>回滚</td><td>Git tag <code>v1.0.0</code> 锚点 + 数据库备份恢复；数据库结构变更建议引入 Alembic</td></tr>
+</table>
+<h2>九、实施里程碑</h2>
+<table>
+<tr><th>阶段</th><th>周期</th><th>交付</th><th>验收</th></tr>
+<tr><td>M0 基线取数</td><td>1 周</td><td>退回率/单均时长/冲突占比基线报告</td><td>口径经三方确认</td></tr>
+<tr><td>M1 冲突预检只读</td><td>2 周</td><td>预检 + 提示 + 评测集</td><td>召回 ≥ 97%，自动放行 = 0</td></tr>
+<tr><td>M2 工单闭环</td><td>2 周</td><td>人工队列 + 三硬字段 + 确认接口</td><td>闭环率 100%，重复确认被拒</td></tr>
+<tr><td>M3 权限与快照</td><td>1 周</td><td>授权清单 + 快照标识 + 降级</td><td>stale 可见，权限清单定稿</td></tr>
+<tr><td>M4 试点运行</td><td>4 周</td><td>双周指标报告</td><td>退回率 ≤ 15%，初审 ≤ 8 分钟</td></tr>
+<tr><td>M5 推广评估</td><td>1 周</td><td>复盘报告 + 推广建议</td><td>停止条件与续做判定</td></tr>
+</table>
+<h2>十、风险与对策</h2>
+<table>
+<tr><th>风险</th><th>影响</th><th>对策</th></tr>
+<tr><td>冲突规则枚举不全</td><td>漏报</td><td>以历史单回放迭代规则，按月补充维度</td></tr>
+<tr><td>误报过多导致信任崩塌</td><td>一线弃用</td><td>误报一键标记 + 阈值周调 + 每条误报进评审</td></tr>
+<tr><td>OCR 无位置信息</td><td>举证不清</td><td>标记&quot;位置未知&quot;，优先升级 OCR 服务（P2）</td></tr>
+<tr><td>只考核效率指标</td><td>压单</td><td>双轨指标 + 压单率反向约束</td></tr>
+<tr><td>授权清单未定</td><td>无法放行</td><td>试点前由合规专员定稿，未定稿仅开放只读</td></tr>
+</table>
+</body></html>
